@@ -789,18 +789,60 @@ async function enviar(programar) {
   if (!total) return ($('eRes').textContent = 'Agrega al menos un destinatario o activa un segmento.');
   let cuando = null;
   if (programar) { cuando = new Date($('eWhen').value); if (isNaN(cuando) || cuando < new Date()) return ($('eRes').textContent = 'Elige una fecha y hora futura.'); }
-  const r = CFG.reglas;
-  const ok = await new Promise((res) => modal(`<h3>${programar ? 'Programar envío' : 'Enviar ahora'}</h3>
-    <p style="margin:0">Se enviará a <b>${total} contacto${total === 1 ? '' : 's'}</b>${programar ? ` el <b>${esc(fechaLarga(cuando))}</b>` : ''}, con pausas de ${r.esperaMin} a ${r.esperaMax} segundos entre cada uno y solo dentro del horario permitido.</p>
-    ${detalle ? `<p style="margin:0">Mensaje: ${detalle}.</p>` : ''}
-    ${$('eSeq').checked ? '<p style="margin:0" class="muted">Quienes no respondan recibirán los seguimientos automáticos.</p>' : ''}
-    <div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" id="cNo">Cancelar</button><button class="btn pri" id="cSi">${programar ? 'Programar' : 'Enviar'}</button></div>`, (b, close) => { $('cNo').onclick = () => { close(); res(false); }; $('cSi').onclick = () => { res(true); close(); }; }, () => res(false)));
-  if (!ok) return;
+  const segmento = $('sOn').checked ? segFiltros() : null;
+  const boton = $(programar ? 'eProg' : 'eNow'), txtBoton = boton.textContent;
+  boton.disabled = true; boton.textContent = 'Preparando lista…';
+  let vista;
+  try { vista = await POST('/api/envios/vista', { destinatarios: dest, segmento }); }
+  catch (e) { $('eRes').textContent = e.message; return; }
+  finally { boton.disabled = false; boton.textContent = txtBoton; }
+  if (!vista.lista.length) return ($('eRes').textContent = 'No hay destinatarios válidos.');
+  const excluir = await confirmarLista(vista.lista, { programar, cuando, detalle });
+  if (!excluir) return;
   try {
-    const d = await POST('/api/envios', { destinatarios: dest, segmento: $('sOn').checked ? segFiltros() : null, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null });
+    const d = await POST('/api/envios', { destinatarios: dest, segmento, excluir, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null });
     $('eRes').textContent = programar ? `Programado para ${fechaLarga(cuando)} (${d.total} contactos).` : `${d.total} mensajes en la cola. Puedes seguir trabajando mientras se envían.`;
     dest = []; renderDest(); renderProgramados();
   } catch (e) { $('eRes').textContent = e.message; }
+}
+// Ventana de confirmación con la lista completa: se puede desmarcar a quien no va.
+// Devuelve los teléfonos desmarcados, o null si se canceló.
+const MAX_FILAS = 200;
+function confirmarLista(todos, { programar, cuando, detalle }) {
+  const lista = [...todos].sort((a, b) => (b.avisos.length > 0) - (a.avisos.length > 0));   // los que tienen aviso, arriba
+  const auto = new Set(lista.filter((c) => c.avisos.some((a) => a.desmarcar)).map((c) => c.telefono));
+  const fuera = new Set(auto);
+  let filtro = '';
+  const r = CFG.reglas;
+  const visibles = () => { const q = filtro.trim().toLowerCase(), qd = q.replace(/\D/g, ''); return q ? lista.filter((c) => nombreDe(c).toLowerCase().includes(q) || (qd && c.telefono.includes(qd))) : lista; };
+  return new Promise((res) => modal(`<h3>${programar ? 'Programar envío' : 'Enviar ahora'}</h3>
+    <p style="margin:0" id="clRes"></p>
+    ${detalle ? `<p style="margin:0">Mensaje: ${detalle}.</p>` : ''}
+    ${$('eSeq').checked ? '<p style="margin:0" class="muted">Quienes no respondan recibirán los seguimientos automáticos.</p>' : ''}
+    <div class="small" id="clAuto"></div>
+    <div class="clbar"><input type="text" id="clQ" placeholder="Buscar por nombre o teléfono"><button class="lnk" id="clTodos">Marcar todos</button><button class="lnk" id="clNinguno">Desmarcar todos</button></div>
+    <div class="clista" id="clLista"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" id="cNo">Cancelar</button><button class="btn pri" id="cSi"></button></div>`, (b, close) => {
+    b.classList.add('ancho');
+    const pintar = () => {
+      const n = lista.length - fuera.size, k = [...auto].filter((t) => fuera.has(t)).length, vs = visibles();
+      $('clRes').innerHTML = `Se enviará a <b>${n} de ${lista.length} contacto${lista.length === 1 ? '' : 's'}</b>${programar ? ` el <b>${esc(fechaLarga(cuando))}</b>` : ''}, con pausas de ${r.esperaMin} a ${r.esperaMax} segundos entre cada uno y solo dentro del horario permitido.`;
+      $('clAuto').innerHTML = k ? `${k} desmarcado${k === 1 ? '' : 's'} por aviso · <button class="lnk" id="clVolver">Marcarlos de nuevo</button>` : '';
+      if (k) $('clVolver').onclick = () => { auto.forEach((t) => fuera.delete(t)); pintar(); };
+      $('clLista').innerHTML = vs.slice(0, MAX_FILAS).map((c) => `<label class="clrow${fuera.has(c.telefono) ? ' off' : ''}"><input type="checkbox" data-t="${esc(c.telefono)}"${fuera.has(c.telefono) ? '' : ' checked'}><span class="grow ell">${esc(nombreDe(c))}</span><span class="small muted">${esc(fmtTel(c.telefono))}</span>${c.etapa && !['Ingresado', 'Perdido'].includes(c.etapa) ? `<span class="pill p-mut">${esc(c.etapa)}</span>` : ''}${c.avisos.map((a) => `<span class="pill ${a.desmarcar ? 'p-terra' : 'p-mut'}">${esc(a.texto)}</span>`).join('')}</label>`).join('')
+        + (vs.length > MAX_FILAS ? `<div class="small muted clmas">… y ${vs.length - MAX_FILAS} más: usa el buscador</div>` : '')
+        + (!vs.length ? '<div class="small muted clmas">Nadie coincide con la búsqueda</div>' : '');
+      $('cSi').textContent = `${programar ? 'Programar para' : 'Enviar a'} ${n}`;
+      $('cSi').disabled = !n;
+    };
+    $('clLista').onchange = (e) => { const t = e.target.dataset.t; if (!t) return; if (e.target.checked) fuera.delete(t); else fuera.add(t); pintar(); };
+    $('clQ').oninput = (e) => { filtro = e.target.value; pintar(); };
+    $('clTodos').onclick = () => { visibles().forEach((c) => fuera.delete(c.telefono)); pintar(); };
+    $('clNinguno').onclick = () => { visibles().forEach((c) => fuera.add(c.telefono)); pintar(); };
+    $('cNo').onclick = () => { close(); res(null); };
+    $('cSi').onclick = () => { res([...fuera]); close(); };
+    pintar();
+  }, () => res(null)));
 }
 $('eNow').onclick = () => enviar(false);
 $('eProg').onclick = () => enviar(true);

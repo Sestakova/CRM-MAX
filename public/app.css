@@ -312,3 +312,12 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .lock-card .lklink{border:0;background:transparent;color:var(--terra-d);font-size:13px;text-decoration:underline;padding:4px}
 .codigo{font-family:ui-monospace,Consolas,monospace;font-size:22px;letter-spacing:.08em;padding:14px 16px;border-radius:14px;background:var(--paper);border:1px solid var(--line);user-select:all}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* Confirmación con lista de destinatarios */
+.modal .box.ancho{width:min(720px,94vw)}
+.clbar{display:flex;gap:8px;align-items:center}
+.clbar input[type=text]{flex:1}
+.clista{border:1px solid var(--line);border-radius:14px;max-height:320px;overflow-y:auto;background:var(--paper)}
+.clrow{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line2);cursor:pointer;flex-wrap:wrap}
+.clrow:last-child{border-bottom:0}
+.clrow.off .grow{color:var(--muted);text-decoration:line-through}
+.clmas{padding:10px 12px}
