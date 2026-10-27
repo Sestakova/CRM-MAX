@@ -59,6 +59,12 @@ test('estadoTanda', () => {
   assert.equal(estadoTanda({ estado: 'activa', pausada: 1, pendientes: 0 }), 'Terminada');
 });
 
+test('estadoTanda con turno y bloqueo general', () => {
+  assert.equal(estadoTanda({ estado: 'activa', pausada: 0, pendientes: 3, puedeEnviar: false }), 'Espera su turno');
+  assert.equal(estadoTanda({ estado: 'activa', pausada: 0, pendientes: 3, puedeEnviar: true, bloqueoGlobal: true }), 'Esperando horario o límite');
+  assert.equal(estadoTanda({ estado: 'activa', pausada: 1, pendientes: 3, puedeEnviar: false }), 'En pausa');
+});
+
 test('datosParaAvisos trae etapa, seguimiento y último masivo', async () => {
   const db = await baseNueva();
   db.guardarContacto({ telefono: '56911111111', nombre: 'Camila', etapa: 'Ingresado' });

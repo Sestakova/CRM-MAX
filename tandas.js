@@ -47,10 +47,13 @@ function escribioHace(ultimoEntrante, creada, ahora = new Date()) {
   return min < 60 ? `Escribió hace ${min} min` : `Escribió hace ${Math.floor(min / 60)} h`;
 }
 
-function estadoTanda({ estado, pausada, pendientes }) {
+// puedeEnviar: le toca según Después/Corriendo · bloqueoGlobal: fuera de horario, máximo diario, todo en pausa o WhatsApp desconectado
+function estadoTanda({ estado, pausada, pendientes, puedeEnviar = true, bloqueoGlobal = false }) {
   if (estado === 'cancelada') return 'Cancelada';
   if (!pendientes) return 'Terminada';
-  return pausada ? 'En pausa' : 'Enviando';
+  if (pausada) return 'En pausa';
+  if (!puedeEnviar) return 'Espera su turno';
+  return bloqueoGlobal ? 'Esperando horario o límite' : 'Enviando';
 }
 
 // Cada usuario con permiso de masivos maneja sus tandas; el administrador, todas

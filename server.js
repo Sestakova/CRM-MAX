@@ -474,7 +474,13 @@ async function startWhatsApp() {
   starting = false;
 }
 // ---------- Cola de envío (masivos, programados y seguimientos) ----------
-const cola = { nextAt: null, espera: null, enviadosSesion: 0 };
+const cola = { carriles: {}, espera: null };   // carriles: { auto | t<id>: { nextAt, enviadosSesion } }
+const CARRILES = require('./carriles');
+const modoDe = (m) => (m === 'corriendo' ? 'corriendo' : 'despues');
+// El próximo envío con pausa pendiente, entre todos los carriles (para «Próximo en …»)
+const proximoEnvio = () => { const ahora = Date.now(), f = Object.values(cola.carriles).map((c) => c.nextAt || 0).filter((t) => t > ahora); return f.length ? Math.min(...f) : null; };
+// Algo frena a todos los grupos: WhatsApp, «Pausar todo», fuera de horario o máximo diario
+const bloqueoGlobal = () => wa.state !== 'listo' || !!db.getConfig('cola_pausada', false) || !enHorario() || db.enviadosHoy() >= db.getConfig('reglas').limiteDiario;
 let cerrandoPrograma = false;   // al salir se corta WhatsApp: el envío en curso falla con un error técnico que no sirve al usuario
 const ADJ = path.join(DATA, 'adjuntos');
 if (!fs.existsSync(ADJ)) fs.mkdirSync(ADJ, { recursive: true });
@@ -497,17 +503,26 @@ function plantillaDe(it) {
   if (it.tipo === 'meta') return pasos[0].texto;
   return it.texto;
 }
+// Un mensaje por vuelta: entre el carril de automáticos y los grupos que pueden enviar, sale el que lleva más rato esperando
 async function tick() {
   if (wa.state !== 'listo') { cola.espera = 'WhatsApp no está conectado'; return; }
   if (db.getConfig('cola_pausada', false)) { cola.espera = 'Envíos en pausa'; return; }
-  const it = db.siguienteEnCola(!!db.getConfig('secuencia').pausada);   // con la secuencia en pausa, los seguimientos esperan
-  if (!it) { cola.espera = null; return; }
-  const agendado = it.tipo === 'agendado';   // avisos a clientes: salen a la hora que elegiste, sin esperar la pausa entre masivos
-  if (!agendado && cola.nextAt && Date.now() < cola.nextAt) return;
-  if (!agendado && !enHorario()) { cola.espera = 'Fuera de horario: continúa en la próxima apertura'; return; }
+  const auto = db.siguienteAuto();
+  const tandas = db.tandasQuePuedenEnviar().map((t) => ({ id: t.id, item: db.siguienteDeTanda(t.id) }));
+  if (!auto && !tandas.some((t) => t.item)) { cola.espera = null; return; }
   const r = db.getConfig('reglas');
-  if (!agendado && db.enviadosHoy() >= r.limiteDiario) { cola.espera = `Llegaste al máximo diario (${r.limiteDiario}): continúa mañana`; return; }
-  cola.espera = null;
+  const horario = enHorario(), limite = db.enviadosHoy() >= r.limiteDiario;
+  cola.espera = !horario ? 'Fuera de horario: continúa en la próxima apertura' : limite ? `Llegaste al máximo diario (${r.limiteDiario}): continúa mañana` : null;
+  const e = CARRILES.elegir({ auto, tandas, carriles: cola.carriles, ahora: Date.now(), puedeMasivo: horario && !limite });
+  if (!e) return;
+  const c = cola.carriles[e.clave];
+  const res = await enviarItem(e.item);
+  if (res === 'enviado') CARRILES.despuesDeEnviar(c, { reglas: r, agendado: e.item.tipo === 'agendado', ahora: Date.now(), rand });
+  else if (res === 'error') CARRILES.trasError(c, Date.now());
+}
+// Devuelve 'enviado', 'omitido' (no espera la pausa) o 'error'
+async function enviarItem(it) {
+  const agendado = it.tipo === 'agendado';   // avisos a clientes: no cambian etapa ni secuencia
   const tel = normPhone(it.telefono) || (esLid(it.telefono) ? it.telefono : null);
   const ct = tel ? db.contacto(tel) || { telefono: tel } : {};
   const quien = `${ct.nombre || it.datos.contacto?.nombre || ''} ${ct.apellido || ''}`.trim() || it.telefono;
@@ -549,14 +564,10 @@ async function tick() {
       try { await enviarA(tel, t2); db.registrarEnvio(tel, t2, agendado ? 'agendado' : 'segundo', 'enviado', null, null); }
       catch (e) { log('segundo mensaje: ' + e.message); evento({ quien, tel, estado: 'error', detalle: 'No salió el segundo mensaje' }); }
     }
-    if (agendado) { cola.nextAt = Date.now() + rand(8, 15) * 1000; return; }
-    cola.enviadosSesion++;
-    let wait = rand(r.esperaMin, Math.max(r.esperaMin, r.esperaMax)) * 1000;
-    if (r.descansoCada > 0 && cola.enviadosSesion % r.descansoCada === 0) wait = r.descansoMin * 60000;
-    cola.nextAt = Date.now() + wait;
+    return 'enviado';
   } catch (e) {
     if (!cerrado) cerrar('error', cerrandoPrograma ? 'El programa se cerró mientras se enviaba: revisa en tu celular si salió' : String(e.message || e).slice(0, 140)); else log('cola después de enviar: ' + (e.message || e));
-    cola.nextAt = Date.now() + 15000;
+    return 'error';
   }
 }
 (async () => { for (;;) { await sleep(1500); try { await tick(); } catch (e) { log('cola: ' + (e.stack || e)); } } })();
@@ -581,7 +592,7 @@ function revisarProgramados() {
   for (const p of db.programadosVencidos()) {
     const ex = p.extra || {};
     const versiones = Array.isArray(ex.versiones) && ex.versiones.length ? [p.texto, ...ex.versiones.slice(1)] : null;
-    const tanda = db.crearTanda({ nombre: p.nombre || 'Envío programado', usuario: (p.destinatarios[0] && p.destinatarios[0]._usuario) || null, tipo: 'programado', programado: p.id, total: p.destinatarios.length });
+    const tanda = db.crearTanda({ nombre: p.nombre || 'Envío programado', usuario: (p.destinatarios[0] && p.destinatarios[0]._usuario) || null, tipo: 'programado', programado: p.id, total: p.destinatarios.length, modo: modoDe(ex.modo) });
     db.encolar(p.destinatarios.map((c) => ({ telefono: c.telefono, texto: p.texto, tipo: 'programado', datos: { contacto: c, secuencia: !!p.secuencia, versiones, adjunto: ex.adjunto || null, segundo: ex.segundo || '', noRepetir: !!ex.noRepetir } })), tanda);
     db.estadoProgramado(p.id, 'enviado');
     evento({ estado: 'programado', detalle: `"${p.nombre || 'Envío programado'}" pasó a la cola (${p.destinatarios.length} contactos)` });
@@ -839,7 +850,7 @@ app.get('/api/estado', (req, res) => {
   res.json({
     version, wa, ultimaRespuesta: wa.ultimaRespuesta || 0, uf, actualizacion: updater ? updater.estado() : null, yo: { nombre: req.usuario.nombre },
     cola: { pausada: db.getConfig('cola_pausada', false), pendientes: db.pendientesCola(), porTipo: db.pendientesPorTipo(),
-      nextAt: cola.nextAt && cola.nextAt > Date.now() ? cola.nextAt : null, espera: cola.espera, enviadosHoy: db.enviadosHoy(), limite: r.limiteDiario, enHorario: enHorario() },
+      nextAt: proximoEnvio(), espera: cola.espera, enviadosHoy: db.enviadosHoy(), limite: r.limiteDiario, enHorario: enHorario() },
     noLeidos: db.get('SELECT COUNT(DISTINCT telefono) AS n FROM mensajes WHERE leido = 0').n,
     avisos: { leadsHoy: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return db.leadsMetaDesde(d.toISOString()); })(), agendadosHoy: db.agendadosHoy(), campana: db.contarRecordatoriosHasta(finDeHoy().toISOString()) },
     eventos: eventos.slice(-80)
@@ -1064,7 +1075,7 @@ app.post('/api/envios', (req, res) => {
   if (b.adjunto && !db.adjunto(b.adjunto)) return fail(res, 'No se encontró la foto o video adjunto');
   if (!versiones.length && !b.adjunto) return fail(res, 'Escribe el mensaje');
   b.texto = versiones[0] || '';
-  const extra = { versiones: versiones.length > 1 ? versiones : null, adjunto: b.adjunto || null, segundo: String(b.segundo || '').trim(), noRepetir: !!b.noRepetir };
+  const extra = { versiones: versiones.length > 1 ? versiones : null, adjunto: b.adjunto || null, segundo: String(b.segundo || '').trim(), noRepetir: !!b.noRepetir, modo: modoDe(b.modo) };
   if (sinPermisoMasivo(req, b)) return fail(res, MSJ_SIN_PERMISO, 403);
   const { lista, invalidos } = TANDAS.unirDestinatarios({ ...b, excluir: Array.isArray(b.excluir) ? b.excluir : [], incluir: Array.isArray(b.incluir) ? b.incluir : null }, { normPhone, buscarContactos: db.buscarContactos });
   if (!lista.length) return fail(res, 'No hay destinatarios válidos');
@@ -1078,7 +1089,7 @@ app.post('/api/envios', (req, res) => {
     evento({ estado: 'programado', detalle: `"${b.nombre || 'Envío programado'}" para ${fecha.toLocaleString('es-CL')} (${lista.length} contactos)` });
     return ok(res, { programado: id, total: lista.length, invalidos });
   }
-  const tanda = db.crearTanda({ nombre: b.nombre || TANDAS.nombrePorDefecto(b.texto, new Date()), usuario: req.usuario.nombre, tipo: 'masivo', total: lista.length });
+  const tanda = db.crearTanda({ nombre: b.nombre || TANDAS.nombrePorDefecto(b.texto, new Date()), usuario: req.usuario.nombre, tipo: 'masivo', total: lista.length, modo: extra.modo });
   db.encolar(lista.map((c) => ({ telefono: c.telefono, texto: b.texto, tipo: 'masivo', datos: { contacto: c, secuencia: !!b.secuencia, noRepetir: !!b.noRepetir, usuario: req.usuario.nombre, versiones: extra.versiones, adjunto: extra.adjunto, segundo: extra.segundo } })), tanda);
   act(req, lista.length > 1 ? 'Envió un mensaje masivo' : 'Envió un mensaje', lista.length > 1 ? `${lista.length} contactos` : nombreC(lista[0].telefono));
   evento({ estado: 'cola', detalle: `${lista.length} mensajes agregados a la cola` });
@@ -1110,7 +1121,13 @@ const tandaDeItem = (itemId) => { const q = db.get('SELECT telefono, tanda FROM 
 const programadoConLista = (id) => { const p = db.get("SELECT id, nombre, destinatarios FROM programados WHERE id = ? AND estado = 'pendiente'", [id]); if (!p) return null; const d = JSON.parse(p.destinatarios || '[]'); return { ...p, destinatarios: d, usuario: (d[0] && d[0]._usuario) || null }; };
 app.get('/api/tandas', (req, res) => {
   const yo = quienSoy(req);
-  const tandas = db.tandas({ desde: new Date(Date.now() - 30 * 86400000).toISOString() }).map((t) => ({ ...t, estadoTexto: TANDAS.estadoTanda(t), puedeManejar: TANDAS.puedeManejar(t, yo) }));
+  const tandas = db.tandas({ desde: new Date(Date.now() - 30 * 86400000).toISOString() });
+  const pueden = new Set(db.tandasQuePuedenEnviar().map((t) => t.id)), bloqueo = bloqueoGlobal(), ahora = Date.now();
+  for (const t of tandas) {
+    const c = cola.carriles['t' + t.id], b = pueden.has(t.id) ? null : db.bloqueadaPor(t.id);
+    Object.assign(t, { estadoTexto: TANDAS.estadoTanda({ ...t, puedeEnviar: pueden.has(t.id), bloqueoGlobal: bloqueo }), puedeManejar: TANDAS.puedeManejar(t, yo),
+      nextAt: c && c.nextAt > ahora ? c.nextAt : null, despuesDe: b ? b.nombre : null });
+  }
   const programados = db.programados().map((p) => { const c = programadoConLista(p.id); return { ...p, puedeManejar: TANDAS.puedeManejar({ usuario: c && c.usuario }, yo) }; });
   res.json({ tandas, programados });
 });
@@ -1141,10 +1158,11 @@ app.post('/api/tandas/item/:itemId/sacar', (req, res) => {
   if (req.body.seguimientos) { db.detenerSecuencia(x.q.telefono, 'Sacado de una tanda'); if (resultado !== 'sacado') db.marcarSinSeguimiento(parseInt(req.params.itemId)); }
   ok(res, { resultado });
 });
-app.post('/api/tandas/item/:itemId/primero', (req, res) => {
-  const x = tandaDeItem(parseInt(req.params.itemId)); if (!x) return fail(res, 'Ese mensaje ya no está en una tanda', 404);
-  if (!TANDAS.puedeManejar(x.t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
-  db.primeroEnTanda(parseInt(req.params.itemId)); act(req, 'Pasó primero a un contacto de una tanda', `"${x.t.nombre}" · ${nombreC(x.q.telefono)}`); ok(res);
+// Nuevo orden de los pendientes de un grupo (arrastrando en la lista)
+app.put('/api/tandas/:id/orden', (req, res) => {
+  const t = db.tanda(parseInt(req.params.id)); if (!t || t.estado === 'cancelada') return fail(res, 'Esa tanda ya no existe', 404);
+  if (!TANDAS.puedeManejar(t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
+  db.ordenarTanda(t.id, Array.isArray(req.body.ids) ? req.body.ids : []); act(req, 'Cambió el orden de una tanda', `"${t.nombre}"`); ok(res);
 });
 app.get('/api/programados/:id/lista', (req, res) => {
   const p = programadoConLista(parseInt(req.params.id)); if (!p) return fail(res, 'Ese envío programado ya salió o fue cancelado', 404);
