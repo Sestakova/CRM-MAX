@@ -127,8 +127,9 @@ async function openDb(dataDir) {
   ensure('agendados', 'telefono', 'TEXT');
   ensure('recordatorios', 'llamada_id', 'INTEGER');
   ensure('cola', 'tanda', 'INTEGER');            // a qué tanda de envío pertenece
-  ensure('cola', 'orden', 'INTEGER');            // orden dentro de la tanda («Primero» lo adelanta)
+  ensure('cola', 'orden', 'INTEGER');            // orden dentro de la tanda (se cambia arrastrando)
   ensure('cola', 'sin_seguimiento', 'INTEGER DEFAULT 0');   // pidieron no iniciar seguimientos tras este envío
+  ensure('tandas', 'modo', "TEXT DEFAULT 'despues'");      // despues: espera a los grupos anteriores · corriendo: sale a la vez
   // Si el programa se cerró a mitad de un envío no se reintenta: no se sabe si salió
   db.run("UPDATE cola SET estado = 'error', detalle = 'El programa se cerró mientras se enviaba: revisa en tu celular si salió', procesado = ? WHERE estado = 'enviando'", [new Date().toISOString()]);
   db.run("UPDATE contactos SET etapa_fecha = COALESCE(actualizado, creado) WHERE etapa_fecha IS NULL");
@@ -334,7 +335,7 @@ async function openDb(dataDir) {
       WHERE m.de_mi = 0 AND m.fecha >= ? AND m.telefono NOT IN (SELECT telefono FROM bajas)
       GROUP BY m.telefono ORDER BY m.fecha ASC`, [new Date(Date.now() - 30 * 86400000).toISOString(), new Date(Date.now() - 30 * 86400000).toISOString()]),
     // ---------- cola de envío
-    crearTanda: ({ nombre, usuario, tipo, programado = null, total }) => { run('INSERT INTO tandas (nombre, usuario, creada, tipo, programado, total) VALUES (?, ?, ?, ?, ?, ?)', [nombre, usuario, now(), tipo, programado, total]); return lastId(); },
+    crearTanda: ({ nombre, usuario, tipo, programado = null, total, modo = 'despues' }) => { run('INSERT INTO tandas (nombre, usuario, creada, tipo, programado, total, modo) VALUES (?, ?, ?, ?, ?, ?, ?)', [nombre, usuario, now(), tipo, programado, total, modo === 'corriendo' ? 'corriendo' : 'despues']); return lastId(); },
     encolar: (items, tandaId = null) => {
       db.exec('BEGIN');
       const t = now();
@@ -342,9 +343,31 @@ async function openDb(dataDir) {
       if (tandaId) db.run('UPDATE cola SET orden = id WHERE tanda = ? AND orden IS NULL', [tandaId]);
       db.exec('COMMIT'); save();
     },
-    // Prioridad: avisos agendados, leads nuevos de Meta, seguimientos y al final los masivos.
-    // Las tandas en pausa o canceladas no entregan mensajes; los mensajes sin tanda siguen como siempre
-    siguienteEnCola: (sinSeguimientos = false) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND (tanda IS NULL OR tanda NOT IN (SELECT id FROM tandas WHERE pausada = 1 OR estado = 'cancelada')) ${sinSeguimientos ? "AND tipo NOT IN ('seguimiento1', 'seguimiento2')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, COALESCE((SELECT MIN(c2.id) FROM cola c2 WHERE c2.tanda = cola.tanda), id), COALESCE(orden, id), id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    // Mensajes sin grupo (agendados, leads de Meta, seguimientos y sueltos), en orden de prioridad
+    siguienteAuto: () => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND tanda IS NULL ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    // El próximo de un grupo, en el orden que se le dio (arrastrando en la lista)
+    siguienteDeTanda: (id) => { const r = get("SELECT * FROM cola WHERE estado = 'pendiente' AND tanda = ? ORDER BY COALESCE(orden, id), id LIMIT 1", [id]); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    // Grupos que pueden enviar ahora: sin pausa ni cancelar, con pendientes, y «Corriendo» o sin un grupo anterior que siga en la cola
+    tandasQuePuedenEnviar: () => all(`SELECT t.id, t.nombre, t.modo FROM tandas t WHERE t.estado != 'cancelada' AND t.pausada = 0
+      AND EXISTS (SELECT 1 FROM cola c WHERE c.tanda = t.id AND c.estado = 'pendiente')
+      AND (t.modo = 'corriendo' OR NOT EXISTS (SELECT 1 FROM tandas t2 WHERE t2.id < t.id AND t2.estado != 'cancelada' AND EXISTS (SELECT 1 FROM cola c2 WHERE c2.tanda = t2.id AND c2.estado IN ('pendiente', 'enviando'))))
+      ORDER BY t.id`),
+    // El primer grupo anterior que hace esperar a un grupo «Después»
+    bloqueadaPor: (id) => {
+      const t = get('SELECT modo FROM tandas WHERE id = ?', [id]); if (!t || t.modo === 'corriendo') return null;
+      return get("SELECT t2.id, t2.nombre FROM tandas t2 WHERE t2.id < ? AND t2.estado != 'cancelada' AND EXISTS (SELECT 1 FROM cola c2 WHERE c2.tanda = t2.id AND c2.estado IN ('pendiente', 'enviando')) ORDER BY t2.id LIMIT 1", [id]) || null;
+    },
+    // Nuevo orden de los pendientes de un grupo: primero los ids recibidos, después los demás como estaban
+    ordenarTanda: (tandaId, ids) => {
+      const pend = all("SELECT id FROM cola WHERE tanda = ? AND estado = 'pendiente' ORDER BY COALESCE(orden, id), id", [tandaId]).map((r) => r.id);
+      const enGrupo = new Set(pend), vistos = new Set();
+      const primero = (ids || []).map(Number).filter((x) => enGrupo.has(x) && !vistos.has(x) && vistos.add(x));
+      const final = primero.concat(pend.filter((x) => !vistos.has(x)));
+      db.exec('BEGIN');
+      final.forEach((x, i) => db.run('UPDATE cola SET orden = ? WHERE id = ?', [i + 1, x]));
+      db.exec('COMMIT'); save();
+      return primero.length;
+    },
     // Reserva el mensaje justo antes de enviarlo: si alguien lo sacó entre medio, devuelve false.
     // Se guarda al disco al tiro: si se corta la luz durante el envío, al reabrir no se reenvía.
     marcarEnviando: (id) => { db.run("UPDATE cola SET estado = 'enviando' WHERE id = ? AND estado = 'pendiente'", [id]); const n = db.getRowsModified(); if (n) { clearTimeout(timer); flush(); } return n > 0; },
@@ -371,7 +394,6 @@ async function openDb(dataDir) {
     itemsDeTanda: (id) => all(`SELECT q.id, q.telefono, q.estado, q.detalle, q.procesado, q.orden, c.nombre, c.apellido, c.ultimo_entrante
       FROM cola q LEFT JOIN contactos c ON c.telefono = q.telefono WHERE q.tanda = ? ORDER BY COALESCE(q.orden, q.id)`, [id]),
     sacarDeTanda: (itemId, usuario) => { db.run("UPDATE cola SET estado = 'sacado', detalle = ?, procesado = ? WHERE id = ? AND estado = 'pendiente'", ['Sacado por ' + usuario, now(), itemId]); const n = db.getRowsModified(); if (n) save(); return n ? 'sacado' : 'ya_salio'; },
-    primeroEnTanda: (itemId) => run("UPDATE cola SET orden = (SELECT MIN(COALESCE(orden, id)) - 1 FROM cola WHERE tanda = (SELECT tanda FROM cola WHERE id = ?) AND estado = 'pendiente') WHERE id = ? AND estado = 'pendiente'", [itemId, itemId]),
     pausarTanda: (id, pausada) => run('UPDATE tandas SET pausada = ? WHERE id = ?', [pausada ? 1 : 0, id]),
     cancelarTanda: (id) => { db.run("UPDATE cola SET estado = 'cancelado', procesado = ? WHERE tanda = ? AND estado = 'pendiente'", [now(), id]); const n = db.getRowsModified(); run("UPDATE tandas SET estado = 'cancelada' WHERE id = ?", [id]); return n; },
     quitarDeProgramado: (programadoId, telefono) => {

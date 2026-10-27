@@ -3,34 +3,100 @@ const assert = require('node:assert/strict');
 const { baseNueva, carpetaNueva, esperarGuardado } = require('./ayuda');
 
 const it = (telefono, tipo = 'masivo') => ({ telefono, texto: 'hola', tipo });
+const grupo = (db, nombre, modo) => db.crearTanda({ nombre, usuario: 'Jesús', tipo: 'masivo', total: 2, modo });
+const ids = (db, t) => db.all('SELECT id FROM cola WHERE tanda = ? ORDER BY id', [t]).map((r) => r.id);
 
-test('mensajes sin tanda siguen saliendo en orden', async () => {
+test('siguienteAuto no entrega mensajes de grupos y respeta la prioridad', async () => {
   const db = await baseNueva();
-  db.encolar([it('56911111111'), it('56922222222')]);
-  assert.equal(db.siguienteEnCola().telefono, '56911111111');
-});
-
-test('una tanda en pausa no frena a otras, ni agendados, ni mensajes sin tanda', async () => {
-  const db = await baseNueva();
-  const t1 = db.crearTanda({ nombre: 'A', usuario: 'Jesús', tipo: 'masivo', total: 1 });
-  const t2 = db.crearTanda({ nombre: 'B', usuario: 'Jesús', tipo: 'masivo', total: 1 });
-  db.encolar([it('56911111111')], t1);
-  db.encolar([it('56922222222')], t2);
-  db.run('UPDATE tandas SET pausada = 1 WHERE id = ?', [t1]);
-  assert.equal(db.siguienteEnCola().telefono, '56922222222');
-  db.run("UPDATE tandas SET pausada = 1 WHERE id = ?", [t2]);
-  db.encolar([it('56944444444')]);
-  assert.equal(db.siguienteEnCola().telefono, '56944444444');
-  db.encolar([it('56933333333', 'agendado')]);
-  assert.equal(db.siguienteEnCola().telefono, '56933333333');
-});
-
-test('una tanda cancelada no entrega más mensajes', async () => {
-  const db = await baseNueva();
-  const t = db.crearTanda({ nombre: 'A', usuario: 'Jesús', tipo: 'masivo', total: 1 });
+  const t = grupo(db, 'A', 'corriendo');
   db.encolar([it('56911111111')], t);
-  db.run("UPDATE tandas SET estado = 'cancelada' WHERE id = ?", [t]);
-  assert.equal(db.siguienteEnCola(), undefined);
+  db.encolar([it('56922222222', 'meta'), it('56933333333', 'agendado')]);
+  assert.equal(db.siguienteAuto().telefono, '56933333333');
+  db.cerrarItem(db.siguienteAuto().id, 'enviado');
+  assert.equal(db.siguienteAuto().telefono, '56922222222');
+  db.cerrarItem(db.siguienteAuto().id, 'enviado');
+  assert.equal(db.siguienteAuto(), undefined);
+});
+
+test('un grupo Después espera al anterior, aunque esté en pausa', async () => {
+  const db = await baseNueva();
+  const a = grupo(db, 'A', 'corriendo'), b = grupo(db, 'B', 'despues');
+  db.encolar([it('56911111111')], a);
+  db.encolar([it('56922222222')], b);
+  assert.deepEqual(db.tandasQuePuedenEnviar().map((t) => t.id), [a]);
+  db.pausarTanda(a, true);
+  assert.deepEqual(db.tandasQuePuedenEnviar().map((t) => t.id), []);
+  db.cancelarTanda(a);
+  assert.deepEqual(db.tandasQuePuedenEnviar().map((t) => t.id), [b]);
+});
+
+test('un grupo Después parte cuando el anterior termina', async () => {
+  const db = await baseNueva();
+  const a = grupo(db, 'A', 'despues'), b = grupo(db, 'B', 'despues');
+  db.encolar([it('56911111111')], a);
+  db.encolar([it('56922222222')], b);
+  db.cerrarItem(ids(db, a)[0], 'enviado');
+  assert.deepEqual(db.tandasQuePuedenEnviar().map((t) => t.id), [b]);
+});
+
+test('un grupo Corriendo sale aunque haya otro antes', async () => {
+  const db = await baseNueva();
+  const a = grupo(db, 'A', 'despues'), b = grupo(db, 'B', 'corriendo');
+  db.encolar([it('56911111111')], a);
+  db.encolar([it('56922222222')], b);
+  assert.deepEqual(db.tandasQuePuedenEnviar().map((t) => t.id), [a, b]);
+});
+
+test('un grupo cuyo anterior está enviando su último mensaje sigue esperando', async () => {
+  const db = await baseNueva();
+  const a = grupo(db, 'A', 'despues'), b = grupo(db, 'B', 'despues');
+  db.encolar([it('56911111111')], a);
+  db.encolar([it('56922222222')], b);
+  db.marcarEnviando(ids(db, a)[0]);
+  assert.deepEqual(db.tandasQuePuedenEnviar().map((t) => t.id), []);
+});
+
+test('bloqueadaPor devuelve el primer grupo que la frena', async () => {
+  const db = await baseNueva();
+  const a = grupo(db, 'A', 'despues'), b = grupo(db, 'B', 'corriendo'), c = grupo(db, 'C', 'despues');
+  for (const [t, tel] of [[a, '56911111111'], [b, '56922222222'], [c, '56933333333']]) db.encolar([it(tel)], t);
+  assert.equal(db.bloqueadaPor(c).nombre, 'A');
+  assert.equal(db.bloqueadaPor(a), null);
+});
+
+test('una tanda en pausa o cancelada no entrega mensajes', async () => {
+  const db = await baseNueva();
+  const a = grupo(db, 'A', 'corriendo'), b = grupo(db, 'B', 'corriendo');
+  db.encolar([it('56911111111')], a);
+  db.encolar([it('56922222222')], b);
+  db.pausarTanda(a, true);
+  db.cancelarTanda(b);
+  assert.deepEqual(db.tandasQuePuedenEnviar(), []);
+});
+
+test('ordenarTanda respeta el nuevo orden y deja al final los no mencionados', async () => {
+  const db = await baseNueva();
+  const t = grupo(db, 'A', 'despues');
+  db.encolar(['56911111111', '56922222222', '56933333333', '56944444444'].map((x) => it(x)), t);
+  const [a, b, c, d] = ids(db, t);
+  db.ordenarTanda(t, [c, a]);
+  const orden = [];
+  for (let n = 0; n < 4; n++) { const x = db.siguienteDeTanda(t); orden.push(x.id); db.cerrarItem(x.id, 'enviado'); }
+  assert.deepEqual(orden, [c, a, b, d]);
+});
+
+test('ordenarTanda ignora ids de otro grupo y los que ya están enviando', async () => {
+  const db = await baseNueva();
+  const t = grupo(db, 'A', 'despues'), otro = grupo(db, 'B', 'despues');
+  db.encolar(['56911111111', '56922222222'].map((x) => it(x)), t);
+  db.encolar([it('56933333333')], otro);
+  const [a, b] = ids(db, t), [o] = ids(db, otro);
+  const ordenOtro = db.get('SELECT orden FROM cola WHERE id = ?', [o]).orden;
+  db.marcarEnviando(a);
+  db.ordenarTanda(t, [a, o, b]);
+  assert.equal(db.get('SELECT estado FROM cola WHERE id = ?', [a]).estado, 'enviando');
+  assert.equal(db.get('SELECT orden FROM cola WHERE id = ?', [o]).orden, ordenOtro);
+  assert.equal(db.siguienteDeTanda(t).id, b);
 });
 
 test('marcarEnviando solo funciona una vez y solo sobre pendientes', async () => {
@@ -63,6 +129,6 @@ test('marcarEnviando queda guardado al tiro: un corte de luz justo después no r
   await esperarGuardado();
   const id = db.get('SELECT id FROM cola').id;
   db.marcarEnviando(id);
-  const db2 = await baseNueva(carpeta);   // se reabre sin esperar el guardado agrupado
+  const db2 = await baseNueva(carpeta);
   assert.equal(db2.get('SELECT estado FROM cola WHERE id = ?', [id]).estado, 'error');
 });
