@@ -220,11 +220,12 @@ async function poll() {
     revisarActualizacion(s.actualizacion);
     if (current === 'envios') { renderCola(); renderGrupos(); if (verTanda.refrescar) verTanda.refrescar(); }
     if (current === 'config') renderWaCard();
+    if (s.version) $('barraTitulo').textContent = 'CRM HERMES · versión ' + s.version;
     if (!poll.novedades && s.version) { poll.novedades = true; novedades(s.version); }
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
-  '4.1.0': ['Antes de enviar ves la lista completa y puedes desmarcar a quien no corresponda', 'Avisos en la lista: ya es cliente, escribió hoy, recibió un masivo hace poco, en seguimiento o perdido', 'Panel de tandas: avance de cada envío, quién falta, a quién se sacó y a quién le llegó', 'Puedes sacar a una persona, pasarla primero o pausar solo una tanda'],
+  '4.1.0': ['Cada envío masivo es un grupo dentro de la Cola de envío: tócalo para ver a quién le falta, a quién le llegó y a quién sacaste', 'Ordena a las personas de un grupo arrastrándolas desde ≡, o sácalas con «No enviar»', 'Al lanzar otro envío eliges «Después» (espera a los que están saliendo) o «Corriendo» (sale a la vez, con su propio ritmo)', 'Antes de enviar ves la lista completa y puedes desmarcar a quien no corresponda', 'Agendar llamada: eliges en cada llamada si va la confirmación, el recordatorio y el aviso de Windows, y puedes editar los textos ahí mismo', 'Automáticos más simple: se quitan Llamadas, Postventa y referidos, Resumen diario y Estado de la secuencia', 'Barra superior verde, con el color del CRM'],
   '4.0.1': ['Envíos: nuevo botón "Elegir de WhatsApp" para elegir uno o varios contactos de tus chats recientes o de los contactos guardados en tu celular', 'Busca por nombre o número, marca varios a la vez o todos los de la lista', 'Los que pidieron BAJA no se pueden elegir y los que ya están en la lista aparecen marcados'],
   '4.0.0': ['CRM MAX ahora se llama CRM HERMES: logo, colores y diseño nuevos', 'Inicio con hilos: la sección que usas pasa al centro y los círculos bajan a una barra', 'Agendar llamada en 2 clics: confirmación y recordatorio al cliente, y aviso para ti', 'Próxima acción en cada lead y aviso de los que conversan sin una', 'Leads estancados en naranjo cuando llevan días en la misma etapa', 'Postventa automática al pasar a Ingresado: bienvenida, control al mes y petición de referidos', 'Resumen diario a tu WhatsApp cada mañana', 'Métricas: mejor hora para enviar y referidos', 'Contactos repetidos: se detectan y se unen', 'Buscar con Ctrl K, campanita de recordatorios, atajos 1 a 6 y Esc', 'Las próximas actualizaciones se instalan solas, sin ventanas'],
   '3.7.0': ['Más rápido: WhatsApp empieza a cargar apenas abres el programa y la sincronización solo trae lo nuevo', 'Si WhatsApp se desvincula, te avisa con una notificación de Windows para escanear el QR', 'Envíos más seguros: no se repite un mensaje si WhatsApp tarda en confirmar o si cierras el programa', 'La respuesta fuera de horario sale una sola vez aunque te escriban varios mensajes seguidos', 'Los mensajes agendados salen a su hora sin esperar la pausa de los masivos; los leads de Meta pasan antes que los masivos', 'Con la secuencia en pausa, los seguimientos que ya estaban en cola también esperan', 'El registro técnico se abre dentro del programa', 'Varias correcciones de seguridad, fechas y pantallas'],
@@ -1401,6 +1402,7 @@ async function mostrarLock() {
   document.body.classList.add('locked'); $('lock').classList.remove('off');
   esqueleto(); $('modal').hidden = true; $('modalBox').innerHTML = '';
   const d = await fetch('/api/auth/estado').then((r) => r.json()).catch(() => null);
+  if (d && d.version) $('barraTitulo').textContent = 'CRM HERMES · versión ' + d.version;
   if (d) {
     LK.pin = ''; LK.tmp = {};
     LK.modo = d.configurado ? 'pin' : 'setup2';

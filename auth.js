@@ -1,7 +1,7 @@
 // Acceso con un solo PIN de 4 números para todo el equipo
 const crypto = require('crypto');
 
-module.exports = function auth({ db, log }) {
+module.exports = function auth({ db, log, version = '' }) {
   db.run(`CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, rol TEXT NOT NULL DEFAULT 'asesor',
     pin TEXT NOT NULL, activo INTEGER DEFAULT 1, creado TEXT, ultimo_acceso TEXT)`);
@@ -69,7 +69,7 @@ module.exports = function auth({ db, log }) {
 
     app.get('/api/auth/estado', (req, res) => {
       const s = sesionDe(req);
-      res.json({ configurado: configurado(), sesion: s ? { nombre: s.usuario.nombre } : null, apariencia: db.getConfig('apariencia') });
+      res.json({ configurado: configurado(), sesion: s ? { nombre: s.usuario.nombre } : null, apariencia: db.getConfig('apariencia'), version });
     });
 
     app.post('/api/auth/configurar', (req, res) => {

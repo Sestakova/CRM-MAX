@@ -777,7 +777,7 @@ app.use((req, res, next) => {
   if (puertoServidor && host !== '127.0.0.1:' + puertoServidor && host !== 'localhost:' + puertoServidor) return res.status(403).end();
   next();
 });
-const AUTH = require('./auth')({ db, log });
+const AUTH = require('./auth')({ db, log, version });
 app.use(AUTH.requerir);
 AUTH.rutas(app);
 // Fotos, videos y PDF para envíos (se guardan solo en este PC)

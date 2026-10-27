@@ -334,3 +334,10 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .opc{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;cursor:pointer}
 .opc.on{border:2px solid var(--terra);background:var(--terra-l)}
 .opc input{margin-top:3px;accent-color:var(--terra)}
+
+/* Barra superior verde del programa (solo en la ventana de escritorio). Windows dibuja minimizar, maximizar y cerrar encima, a la derecha */
+#barraVentana{display:none}
+.ventana #barraVentana{display:flex;align-items:center;gap:10px;position:fixed;top:0;left:0;right:0;height:36px;padding:0 calc(100% - env(titlebar-area-width, 100%) + 12px) 0 14px;z-index:1000;background:#2F4A3C;color:#F6ECDA;font-family:var(--serif);font-size:13px;letter-spacing:.06em;-webkit-app-region:drag;user-select:none}
+.ventana #barraVentana img{width:20px;height:20px;border-radius:5px}
+.ventana .app{height:calc(100vh - 36px);margin-top:36px}
+.ventana .lock{top:36px}

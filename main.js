@@ -170,6 +170,8 @@ app.whenReady().then(async () => {
   win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 1000, minHeight: 640, show: !startHidden,
     title: NOMBRE, autoHideMenuBar: true, backgroundColor: '#FBF7F0',
+    // Barra superior verde: la dibuja la página (public/index.html) y Windows pone sus botones encima
+    titleBarStyle: 'hidden', titleBarOverlay: { color: '#2F4A3C', symbolColor: '#F6ECDA', height: 36 },
     icon: ICONO, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true }
   });
   const titulo = `${NOMBRE} · versión ${app.getVersion()}`;
