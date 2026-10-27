@@ -1,15 +1,18 @@
 // Tandas de envío: lo que no depende de WhatsApp (unir destinatarios, avisos, nombres y estado)
 
 // Destinatarios a mano + segmento, sin repetidos (gana el escrito a mano) y sin los excluidos. No guarda nada.
-function unirDestinatarios({ destinatarios = [], segmento = null, excluir = [] }, { normPhone, buscarContactos }) {
-  const fuera = new Set(excluir.map(normPhone).filter(Boolean));
+// Con `incluir`, solo quedan esos (los que se vieron marcados en la confirmación: no se cuela nadie nuevo).
+// Los teléfonos se comparan normalizados y también tal cual (contactos con código interno de WhatsApp).
+const claves = (tels, normPhone) => new Set(tels.flatMap((t) => [normPhone(t), String(t)]).filter(Boolean));
+function unirDestinatarios({ destinatarios = [], segmento = null, excluir = [], incluir = null }, { normPhone, buscarContactos }) {
+  const fuera = claves(excluir, normPhone), solo = Array.isArray(incluir) ? claves(incluir, normPhone) : null;
   const mapa = new Map(); let invalidos = 0;
   for (const c of destinatarios) {
     const tel = normPhone(c.telefono); if (!tel) { invalidos++; continue; }
     if (!mapa.has(tel)) mapa.set(tel, { ...c, telefono: tel });
   }
   if (segmento) for (const c of buscarContactos({ ...segmento, sinBajas: true })) if (!mapa.has(c.telefono)) mapa.set(c.telefono, { telefono: c.telefono, nombre: c.nombre });
-  return { lista: [...mapa.values()].filter((c) => !fuera.has(c.telefono)), invalidos };
+  return { lista: [...mapa.values()].filter((c) => !fuera.has(c.telefono) && (!solo || solo.has(c.telefono))), invalidos };
 }
 
 const medianoche = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };

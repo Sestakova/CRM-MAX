@@ -128,6 +128,7 @@ async function openDb(dataDir) {
   ensure('recordatorios', 'llamada_id', 'INTEGER');
   ensure('cola', 'tanda', 'INTEGER');            // a qué tanda de envío pertenece
   ensure('cola', 'orden', 'INTEGER');            // orden dentro de la tanda («Primero» lo adelanta)
+  ensure('cola', 'sin_seguimiento', 'INTEGER DEFAULT 0');   // pidieron no iniciar seguimientos tras este envío
   // Si el programa se cerró a mitad de un envío no se reintenta: no se sabe si salió
   db.run("UPDATE cola SET estado = 'error', detalle = 'El programa se cerró mientras se enviaba: revisa en tu celular si salió', procesado = ? WHERE estado = 'enviando'", [new Date().toISOString()]);
   db.run("UPDATE contactos SET etapa_fecha = COALESCE(actualizado, creado) WHERE etapa_fecha IS NULL");
@@ -343,9 +344,13 @@ async function openDb(dataDir) {
     },
     // Prioridad: avisos agendados, leads nuevos de Meta, seguimientos y al final los masivos.
     // Las tandas en pausa o canceladas no entregan mensajes; los mensajes sin tanda siguen como siempre
-    siguienteEnCola: (sinSeguimientos = false) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND (tanda IS NULL OR tanda NOT IN (SELECT id FROM tandas WHERE pausada = 1 OR estado = 'cancelada')) ${sinSeguimientos ? "AND tipo NOT IN ('seguimiento1', 'seguimiento2')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, COALESCE(orden, id), id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
-    // Reserva el mensaje justo antes de enviarlo: si alguien lo sacó entre medio, devuelve false
-    marcarEnviando: (id) => { db.run("UPDATE cola SET estado = 'enviando' WHERE id = ? AND estado = 'pendiente'", [id]); const n = db.getRowsModified(); if (n) save(); return n > 0; },
+    siguienteEnCola: (sinSeguimientos = false) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND (tanda IS NULL OR tanda NOT IN (SELECT id FROM tandas WHERE pausada = 1 OR estado = 'cancelada')) ${sinSeguimientos ? "AND tipo NOT IN ('seguimiento1', 'seguimiento2')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, COALESCE((SELECT MIN(c2.id) FROM cola c2 WHERE c2.tanda = cola.tanda), id), COALESCE(orden, id), id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    // Reserva el mensaje justo antes de enviarlo: si alguien lo sacó entre medio, devuelve false.
+    // Se guarda al disco al tiro: si se corta la luz durante el envío, al reabrir no se reenvía.
+    marcarEnviando: (id) => { db.run("UPDATE cola SET estado = 'enviando' WHERE id = ? AND estado = 'pendiente'", [id]); const n = db.getRowsModified(); if (n) { clearTimeout(timer); flush(); } return n > 0; },
+    // «Sí, también» cuando el mensaje ya estaba saliendo: después de enviarlo no se inician los seguimientos
+    marcarSinSeguimiento: (id) => run('UPDATE cola SET sin_seguimiento = 1 WHERE id = ?', [id]),
+    sinSeguimiento: (id) => !!(get('SELECT sin_seguimiento FROM cola WHERE id = ?', [id]) || {}).sin_seguimiento,
     // ---------- tandas
     // Las de 2 contactos o más, con pendientes o creadas desde `desde`, de la más nueva a la más vieja
     tandas: ({ desde }) => all(`SELECT t.*, COALESCE(SUM(c.estado = 'enviado'), 0) AS enviados, COALESCE(SUM(c.estado IN ('pendiente', 'enviando')), 0) AS pendientes,

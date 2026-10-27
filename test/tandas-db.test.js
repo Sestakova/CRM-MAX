@@ -88,3 +88,24 @@ test('quitarDeProgramado saca solo a esa persona', async () => {
   const fila = db.get('SELECT destinatarios FROM programados WHERE id = ?', [id]);
   assert.deepEqual(JSON.parse(fila.destinatarios).map((c) => c.telefono), ['56911111111', '56933333333']);
 });
+
+test('apretar Primero muchas veces nunca adelanta a una tanda anterior ni a mensajes antiguos', async () => {
+  const db = await baseNueva();
+  db.encolar([it('56900000000')]);   // mensaje antiguo, sin tanda
+  const a = db.crearTanda({ nombre: 'A', usuario: 'Jesús', tipo: 'masivo', total: 3 });
+  db.encolar([it('56900000001'), it('56900000002'), it('56900000003')], a);
+  const b = db.crearTanda({ nombre: 'B', usuario: 'Jesús', tipo: 'masivo', total: 2 });
+  db.encolar([it('56900000004'), it('56900000005')], b);
+  const id = (t) => db.get('SELECT id FROM cola WHERE telefono = ?', [t]).id;
+  for (let i = 0; i < 5; i++) db.primeroEnTanda(id(i % 2 ? '56900000004' : '56900000005'));
+  const orden = vaciar(db);
+  assert.deepEqual(orden.slice(0, 4), ['56900000000', '56900000001', '56900000002', '56900000003']);
+});
+
+test('pedir que no siga con seguimientos queda anotado aunque el mensaje ya esté saliendo', async () => {
+  const { db, ids } = await conTanda(['56911111111', '56922222222']);
+  db.marcarEnviando(ids[0]);
+  db.marcarSinSeguimiento(ids[0]);
+  assert.equal(db.sinSeguimiento(ids[0]), true);
+  assert.equal(db.sinSeguimiento(ids[1]), false);
+});

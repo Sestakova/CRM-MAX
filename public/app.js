@@ -798,16 +798,16 @@ async function enviar(programar) {
   catch (e) { $('eRes').textContent = e.message; return; }
   finally { boton.disabled = false; boton.textContent = txtBoton; }
   if (!vista.lista.length) return ($('eRes').textContent = 'No hay destinatarios válidos.');
-  const excluir = await confirmarLista(vista.lista, { programar, cuando, detalle });
-  if (!excluir) return;
+  const elegidos = await confirmarLista(vista.lista, { programar, cuando, detalle });
+  if (!elegidos) return;
   try {
-    const d = await POST('/api/envios', { destinatarios: dest, segmento, excluir, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null });
-    $('eRes').textContent = programar ? `Programado para ${fechaLarga(cuando)} (${d.total} contactos).` : `${d.total} mensajes en la cola. Puedes seguir trabajando mientras se envían.`;
+    const d = await POST('/api/envios', { destinatarios: dest, segmento, excluir: elegidos.excluir, incluir: elegidos.incluir, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null });
+    $('eRes').textContent = (programar ? `Programado para ${fechaLarga(cuando)} (${d.total} contactos).` : `${d.total} mensajes en la cola. Puedes seguir trabajando mientras se envían.`) + (d.total < elegidos.incluir.length ? ` ${elegidos.incluir.length - d.total} quedaron fuera porque pidieron la baja mientras revisabas.` : '');
     dest = []; renderDest(); renderProgramados(); renderTandas();
   } catch (e) { $('eRes').textContent = e.message; }
 }
 // Ventana de confirmación con la lista completa: se puede desmarcar a quien no va.
-// Devuelve los teléfonos desmarcados, o null si se canceló.
+// Devuelve { excluir, incluir } (desmarcados y marcados), o null si se canceló.
 const MAX_FILAS = 200;
 function confirmarLista(todos, { programar, cuando, detalle }) {
   const lista = [...todos].sort((a, b) => (b.avisos.length > 0) - (a.avisos.length > 0));   // los que tienen aviso, arriba
@@ -841,7 +841,7 @@ function confirmarLista(todos, { programar, cuando, detalle }) {
     $('clTodos').onclick = () => { visibles().forEach((c) => fuera.delete(c.telefono)); pintar(); };
     $('clNinguno').onclick = () => { visibles().forEach((c) => fuera.add(c.telefono)); pintar(); };
     $('cNo').onclick = () => { close(); res(null); };
-    $('cSi').onclick = () => { res([...fuera]); close(); };
+    $('cSi').onclick = () => { res({ excluir: [...fuera], incluir: lista.filter((c) => !fuera.has(c.telefono)).map((c) => c.telefono) }); close(); };
     pintar();
   }, () => res(null)));
 }
@@ -903,7 +903,7 @@ async function verTanda(id, pestana = 'pend') {
     const recargar = async () => { try { await cargar(); } catch {} pintar(); renderTandas.sig = null; renderTandas(); };
     const sacar = async (itemId, seguimientos) => {
       const r = await POST(`/api/tandas/item/${itemId}/sacar`, { seguimientos }).catch((e) => { toast(e.message); return null; });
-      if (r && r.resultado === 'ya_salio') toast('Ya se estaba enviando');
+      if (r && r.resultado === 'ya_salio') toast(seguimientos ? 'Ya se estaba enviando. Los seguimientos automáticos quedaron detenidos.' : 'Ya se estaba enviando');
       preguntando = null; recargar();
     };
     $('tvTabs').onclick = (e) => { const k = e.target.dataset.k; if (k) { pestana = k; pintar(); } };

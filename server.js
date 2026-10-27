@@ -475,6 +475,7 @@ async function startWhatsApp() {
 }
 // ---------- Cola de envío (masivos, programados y seguimientos) ----------
 const cola = { nextAt: null, espera: null, enviadosSesion: 0 };
+let cerrandoPrograma = false;   // al salir se corta WhatsApp: el envío en curso falla con un error técnico que no sirve al usuario
 const ADJ = path.join(DATA, 'adjuntos');
 if (!fs.existsSync(ADJ)) fs.mkdirSync(ADJ, { recursive: true });
 function mediaDeAdjunto(id) {
@@ -536,7 +537,7 @@ async function tick() {
     if (agendado) { /* aviso a cliente: no cambia etapa ni secuencia */ }
     else if (!esSeg) {
       db.moverEtapaSi(tel, ['Nuevo'], 'Contactado');
-      if (it.datos.secuencia && ct.seq_estado !== 'activa') db.iniciarSecuencia(tel);
+      if (it.datos.secuencia && ct.seq_estado !== 'activa' && !db.sinSeguimiento(it.id)) db.iniciarSecuencia(tel);
     } else if (it.tipo === 'seguimiento2' || !db.getConfig('secuencia').pasos[2].activo) {
       db.avanzarSecuencia(tel, 3, true);
     }
@@ -554,7 +555,7 @@ async function tick() {
     if (r.descansoCada > 0 && cola.enviadosSesion % r.descansoCada === 0) wait = r.descansoMin * 60000;
     cola.nextAt = Date.now() + wait;
   } catch (e) {
-    if (!cerrado) cerrar('error', String(e.message || e).slice(0, 140)); else log('cola después de enviar: ' + (e.message || e));
+    if (!cerrado) cerrar('error', cerrandoPrograma ? 'El programa se cerró mientras se enviaba: revisa en tu celular si salió' : String(e.message || e).slice(0, 140)); else log('cola después de enviar: ' + (e.message || e));
     cola.nextAt = Date.now() + 15000;
   }
 }
@@ -1065,7 +1066,7 @@ app.post('/api/envios', (req, res) => {
   b.texto = versiones[0] || '';
   const extra = { versiones: versiones.length > 1 ? versiones : null, adjunto: b.adjunto || null, segundo: String(b.segundo || '').trim(), noRepetir: !!b.noRepetir };
   if (sinPermisoMasivo(req, b)) return fail(res, MSJ_SIN_PERMISO, 403);
-  const { lista, invalidos } = TANDAS.unirDestinatarios({ ...b, excluir: Array.isArray(b.excluir) ? b.excluir : [] }, { normPhone, buscarContactos: db.buscarContactos });
+  const { lista, invalidos } = TANDAS.unirDestinatarios({ ...b, excluir: Array.isArray(b.excluir) ? b.excluir : [], incluir: Array.isArray(b.incluir) ? b.incluir : null }, { normPhone, buscarContactos: db.buscarContactos });
   if (!lista.length) return fail(res, 'No hay destinatarios válidos');
   // Los agregados a mano se guardan como contactos (solo los que quedaron en la lista)
   const aMano = new Set((b.destinatarios || []).map((c) => normPhone(c.telefono)).filter(Boolean));
@@ -1134,9 +1135,10 @@ app.post('/api/tandas/item/:itemId/sacar', (req, res) => {
   if (!TANDAS.puedeManejar(x.t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
   const resultado = db.sacarDeTanda(parseInt(req.params.itemId), req.usuario.nombre);
   if (resultado === 'sacado') {
-    if (req.body.seguimientos) db.detenerSecuencia(x.q.telefono, 'Sacado de una tanda');
     act(req, 'Sacó a un contacto de una tanda', `"${x.t.nombre}" · ${nombreC(x.q.telefono)}`);
   }
+  // «Sí, también» vale aunque el mensaje ya estuviera saliendo: se detienen y no se inician después
+  if (req.body.seguimientos) { db.detenerSecuencia(x.q.telefono, 'Sacado de una tanda'); if (resultado !== 'sacado') db.marcarSinSeguimiento(parseInt(req.params.itemId)); }
   ok(res, { resultado });
 });
 app.post('/api/tandas/item/:itemId/primero', (req, res) => {
@@ -1285,7 +1287,7 @@ app.post('/api/actualizacion/buscar', soloAdmin, (req, res) => { if (updater) up
 app.post('/api/actualizacion/instalar', soloAdmin, (req, res) => { ok(res); if (updater) setTimeout(() => updater.instalar(), 500); });
 
 const busy = () => db.pendientesCola() > 0 && wa.state === 'listo';
-const destroy = async () => { try { if (client) await client.destroy(); } catch {} if (!embebido) { try { await killOrphans(); } catch {} } db.flush(); };
+const destroy = async () => { cerrandoPrograma = true; try { if (client) await client.destroy(); } catch {} if (!embebido) { try { await killOrphans(); } catch {} } db.flush(); };
 startWhatsApp();
 return new Promise((resolve) => {
   const srv = app.listen(port, '127.0.0.1', () => resolve({ port: (puertoServidor = srv.address().port), busy, destroy, avisos: () => db.getConfig('avisos') }));

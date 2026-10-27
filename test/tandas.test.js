@@ -77,3 +77,14 @@ test('puedeManejar', () => {
   assert.equal(puedeManejar(t, { esAdmin: false, nombre: 'Luis', masivos: true }), false);
   assert.equal(puedeManejar(t, { esAdmin: false, nombre: 'Ana', masivos: false }), false);
 });
+
+test('un contacto con código interno de WhatsApp (sin número) también se puede excluir', () => {
+  const lid = '123456789012345';
+  const r = unirDestinatarios({ segmento: {}, excluir: [lid] }, { normPhone, buscarContactos: () => [{ telefono: lid, nombre: 'Oculto' }, { telefono: '56922222222', nombre: 'Pedro' }] });
+  assert.deepEqual(r.lista.map((c) => c.telefono), ['56922222222']);
+});
+
+test('con incluir, solo salen los que se vieron marcados en la confirmación', () => {
+  const r = unirDestinatarios({ segmento: {}, incluir: ['56922222222'] }, { normPhone, buscarContactos: () => [{ telefono: '56922222222', nombre: 'Pedro' }, { telefono: '56933333333', nombre: 'Llegó recién' }] });
+  assert.deepEqual(r.lista.map((c) => c.telefono), ['56922222222']);
+});

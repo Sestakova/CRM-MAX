@@ -55,3 +55,14 @@ test('un mensaje que quedó enviando pasa a error al reabrir la base', async () 
   assert.equal(fila.estado, 'error');
   assert.match(fila.detalle, /^El programa se cerró/);
 });
+
+test('marcarEnviando queda guardado al tiro: un corte de luz justo después no reenvía', async () => {
+  const carpeta = carpetaNueva();
+  const db = await baseNueva(carpeta);
+  db.encolar([it('56911111111')]);
+  await esperarGuardado();
+  const id = db.get('SELECT id FROM cola').id;
+  db.marcarEnviando(id);
+  const db2 = await baseNueva(carpeta);   // se reabre sin esperar el guardado agrupado
+  assert.equal(db2.get('SELECT estado FROM cola WHERE id = ?', [id]).estado, 'error');
+});
