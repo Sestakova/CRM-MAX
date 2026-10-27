@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS cola (
   datos TEXT, creado TEXT, estado TEXT DEFAULT 'pendiente', detalle TEXT, procesado TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cola_estado ON cola(estado, id);
+CREATE TABLE IF NOT EXISTS tandas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, usuario TEXT, creada TEXT, tipo TEXT,
+  programado INTEGER, pausada INTEGER DEFAULT 0, estado TEXT DEFAULT 'activa', total INTEGER
+);
 CREATE TABLE IF NOT EXISTS programados (
   id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, texto TEXT, destinatarios TEXT,
   fecha TEXT, secuencia INTEGER DEFAULT 0, estado TEXT DEFAULT 'pendiente', creado TEXT
@@ -122,11 +126,16 @@ async function openDb(dataDir) {
   ensure('agendados', 'etiqueta', 'TEXT');       // llamada, recordatorio de llamada, postventa, control, referidos
   ensure('agendados', 'telefono', 'TEXT');
   ensure('recordatorios', 'llamada_id', 'INTEGER');
+  ensure('cola', 'tanda', 'INTEGER');            // a qué tanda de envío pertenece
+  ensure('cola', 'orden', 'INTEGER');            // orden dentro de la tanda («Primero» lo adelanta)
+  // Si el programa se cerró a mitad de un envío no se reintenta: no se sabe si salió
+  db.run("UPDATE cola SET estado = 'error', detalle = 'El programa se cerró mientras se enviaba: revisa en tu celular si salió', procesado = ? WHERE estado = 'enviando'", [new Date().toISOString()]);
   db.run("UPDATE contactos SET etapa_fecha = COALESCE(actualizado, creado) WHERE etapa_fecha IS NULL");
 
   db.exec(`CREATE INDEX IF NOT EXISTS idx_msj_leido ON mensajes(leido, telefono);
     CREATE INDEX IF NOT EXISTS idx_msj_demi ON mensajes(de_mi, fecha);
     CREATE INDEX IF NOT EXISTS idx_cola_tel ON cola(telefono, tipo, estado);
+    CREATE INDEX IF NOT EXISTS idx_cola_tanda ON cola(tanda, estado);
     CREATE INDEX IF NOT EXISTS idx_lids_tel ON lids(telefono);
     CREATE INDEX IF NOT EXISTS idx_rec_tel ON recordatorios(hecho, telefono);
     CREATE INDEX IF NOT EXISTS idx_llam_tel ON llamadas(estado, telefono);`);
@@ -324,14 +333,19 @@ async function openDb(dataDir) {
       WHERE m.de_mi = 0 AND m.fecha >= ? AND m.telefono NOT IN (SELECT telefono FROM bajas)
       GROUP BY m.telefono ORDER BY m.fecha ASC`, [new Date(Date.now() - 30 * 86400000).toISOString(), new Date(Date.now() - 30 * 86400000).toISOString()]),
     // ---------- cola de envío
-    encolar: (items) => {
+    crearTanda: ({ nombre, usuario, tipo, programado = null, total }) => { run('INSERT INTO tandas (nombre, usuario, creada, tipo, programado, total) VALUES (?, ?, ?, ?, ?, ?)', [nombre, usuario, now(), tipo, programado, total]); return lastId(); },
+    encolar: (items, tandaId = null) => {
       db.exec('BEGIN');
       const t = now();
-      for (const it of items) db.run('INSERT INTO cola (telefono, texto, tipo, datos, creado) VALUES (?, ?, ?, ?, ?)', [it.telefono, it.texto, it.tipo, JSON.stringify(it.datos || {}), t]);
+      for (const it of items) db.run('INSERT INTO cola (telefono, texto, tipo, datos, creado, tanda) VALUES (?, ?, ?, ?, ?, ?)', [it.telefono, it.texto, it.tipo, JSON.stringify(it.datos || {}), t, tandaId]);
+      if (tandaId) db.run('UPDATE cola SET orden = id WHERE tanda = ? AND orden IS NULL', [tandaId]);
       db.exec('COMMIT'); save();
     },
-    // Prioridad: avisos agendados, leads nuevos de Meta, seguimientos y al final los masivos
-    siguienteEnCola: (sinSeguimientos = false) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' ${sinSeguimientos ? "AND tipo NOT IN ('seguimiento1', 'seguimiento2')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    // Prioridad: avisos agendados, leads nuevos de Meta, seguimientos y al final los masivos.
+    // Las tandas en pausa o canceladas no entregan mensajes; los mensajes sin tanda siguen como siempre
+    siguienteEnCola: (sinSeguimientos = false) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND (tanda IS NULL OR tanda NOT IN (SELECT id FROM tandas WHERE pausada = 1 OR estado = 'cancelada')) ${sinSeguimientos ? "AND tipo NOT IN ('seguimiento1', 'seguimiento2')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, COALESCE(orden, id), id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    // Reserva el mensaje justo antes de enviarlo: si alguien lo sacó entre medio, devuelve false
+    marcarEnviando: (id) => { db.run("UPDATE cola SET estado = 'enviando' WHERE id = ? AND estado = 'pendiente'", [id]); const n = db.getRowsModified(); if (n) save(); return n > 0; },
     cerrarItem: (id, estado, detalle) => run('UPDATE cola SET estado = ?, detalle = ?, procesado = ? WHERE id = ?', [estado, detalle || null, now(), id]),
     pendientesCola: () => get("SELECT COUNT(*) AS n FROM cola WHERE estado = 'pendiente'").n,
     pendientesPorTipo: () => all("SELECT tipo, COUNT(*) AS n FROM cola WHERE estado = 'pendiente' GROUP BY tipo"),
