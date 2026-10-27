@@ -155,24 +155,13 @@
   <!-- AUTOMÁTICOS -->
   <section class="view" id="v-auto">
     <div class="glass" style="margin-bottom:20px"><div class="card" style="padding-bottom:6px"><div class="hd"><div><h2>Mensajes agendados</h2><span class="small muted">Avisos a uno o varios clientes en la fecha y hora que elijas: firmas, documentos, pagos, reuniones.</span></div><button class="btn pri" id="agNuevo">Agendar mensaje</button></div></div><div id="agList"></div></div>
-    <div class="grid g3" style="margin-bottom:20px;align-items:start">
-      <div class="glass card" id="kLlam"></div>
-      <div class="glass card" id="kPost"></div>
-      <div class="glass card" id="kRes"></div>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px"><h2 style="margin:0;font-size:20px;font-weight:500">Secuencia de seguimiento</h2><span class="muted small">Se detiene sola si el lead responde, pide BAJA o lo mueves de etapa · los cambios aplican a todos</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;gap:16px;flex-wrap:wrap"><h2 style="margin:0;font-size:20px;font-weight:500">Secuencia de seguimiento</h2><span class="muted small">Se detiene sola si el lead responde, pide BAJA o lo mueves de etapa · los cambios aplican a todos · El Mensaje 1 se usa en Envíos (botón "Usar Mensaje 1") y es el primer mensaje a los leads de Meta</span></div>
     <div class="steps" id="aSteps"></div>
-    <div class="grid g2" style="margin-top:16px">
+    <div style="margin-top:16px">
       <div class="glass card">
         <div class="hd"><h2>Respuesta fuera de horario</h2><label class="check" style="font-size:13px;color:var(--muted)">Activa<input type="checkbox" id="fhOn"></label></div>
         <span class="small muted" id="fhInfo"></span>
         <textarea id="fhTxt" rows="4"></textarea>
-      </div>
-      <div class="glass card">
-        <h2>Estado de la secuencia</h2>
-        <div id="aEstado" class="small"></div>
-        <label class="check">Pausar todos los seguimientos<input type="checkbox" id="aPausa"></label>
-        <span class="small muted">El Mensaje 1 se usa en Envíos (botón "Usar Mensaje 1") y es el primer mensaje a los leads de Meta.</span>
       </div>
     </div>
   </section>

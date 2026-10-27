@@ -445,6 +445,12 @@ async function openDb(dataDir) {
     for (const f of ['bajas.json', 'enviados.json']) { const p = path.join(dataDir, f); if (fs.existsSync(p)) try { fs.renameSync(p, p + '.migrado'); } catch {} }
     flush();
   }
+  // 4.1.0: ya no existe «Pausar todos los seguimientos»; si quedaron en pausa se reactivan una sola vez
+  if (!api.getConfig('mig_410_seq', false)) {
+    const s = api.getConfig('secuencia');
+    if (s.pausada) { s.pausada = false; api.setConfig('secuencia', s); }
+    api.setConfig('mig_410_seq', true);
+  }
   return api;
 }
 

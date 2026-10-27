@@ -76,7 +76,7 @@ const SECS = [
   { id: 'pipeline', label: 'Pipeline', d: 'M4 4h4v16H4z M10 4h4v11h-4z M16 4h4v7h-4z', desc: 'Arrastra cada lead a su etapa, de Nuevo a Ingresado · Atajo 3' },
   { id: 'envios', label: 'Envíos', d: 'M3 11l18-7-7 18-3-8z', desc: 'Manda mensajes a muchos contactos a la vez · Atajo 4' },
   { id: 'leads', label: 'Leads de Meta', d: 'M4 4h16v11h-4l-2 3h-4l-2-3H4z', desc: 'Los que llenan tus formularios de Facebook e Instagram · Atajo 5' },
-  { id: 'auto', label: 'Automáticos', d: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7v5l3 2', desc: 'Llamadas, postventa, seguimientos y mensajes agendados · Atajo 6' }
+  { id: 'auto', label: 'Automáticos', d: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7v5l3 2', desc: 'Mensajes agendados, seguimientos y respuesta fuera de horario · Atajo 6' }
 ];
 const VIEWS = [
   { id: 'hoy', label: 'Tu día', sub: () => new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }) },
@@ -84,7 +84,7 @@ const VIEWS = [
   { id: 'chats', label: 'Chats', sub: () => 'WhatsApp con la ficha de cada lead al lado' },
   { id: 'pipeline', label: 'Pipeline', sub: () => 'Arrastra cada lead a su etapa' },
   { id: 'envios', label: 'Envíos', sub: () => 'Agrega contactos a mano o importa un Excel · envía ahora o programa' },
-  { id: 'auto', label: 'Automáticos', sub: () => 'Llamadas, postventa, seguimientos, mensajes agendados y respuesta fuera de horario' },
+  { id: 'auto', label: 'Automáticos', sub: () => 'Mensajes agendados, seguimientos y respuesta fuera de horario' },
   { id: 'metricas', label: 'Métricas', sub: () => 'Qué mensajes funcionan, a qué hora te responden y dónde se pierden los leads' },
   { id: 'config', label: 'Configuración', sub: () => 'Conexión, reglas de envío, avisos, ayudas y seguridad' }
 ];
@@ -996,70 +996,17 @@ async function loadAuto() {
   $('fhOn').checked = CFG.fueraHorario.activa; $('fhTxt').value = CFG.fueraHorario.texto;
   const h = CFG.reglas.horario; const f = (x, n) => (x.on ? `${n} ${x.desde}–${x.hasta}` : `${n} cerrado`);
   $('fhInfo').innerHTML = `Se envía una vez al día cuando alguien escribe fuera de: ${f(h.lv, 'L–V')} · ${f(h.sab, 'Sáb')} · ${f(h.dom, 'Dom')}. <a href="#" data-go="config" class="lnk">Cambiar horario</a>`;
-  $('aPausa').checked = !!s.pausada;
-  const d = await GET('/api/inicio').catch(() => null);
-  if (d) $('aEstado').innerHTML = `<div class="kv"><span>Leads en secuencia ahora</span><b>${d.enSecuencia}</b></div><div class="kv"><span>Seguimientos esperando en la cola</span><b>${d.seguimientosEnCola}</b></div>`;
   $('aSave').onclick = guardarAuto;
-  renderAgendados(); renderAutoNuevos();
-}
-// Llamadas, postventa/referidos y resumen diario
-function renderAutoNuevos() {
-  const L = CFG.llamadas, P = CFG.postventa, R = CFG.referidos, RS = CFG.resumen;
-  const tiempos = [[15, '15 min antes'], [60, '1 hora antes'], [120, '2 horas antes'], [1440, 'El día anterior']];
-  const minRec = parseInt(L.recordatorio.minutos) || 60;
-  const esPropio = !tiempos.some(([m]) => m === minRec);
-  $('kLlam').innerHTML = `<div class="hd"><h2>📞 Llamadas</h2></div>
-    <span class="small muted">Al agendar una llamada desde la ficha. Usa {nombre}, {dia} y {hora}.</span>
-    <label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="kLc" ${L.confirmacion.on ? 'checked' : ''}><b>Confirmación al cliente</b></label>
-    <textarea id="kLct" rows="3">${esc(L.confirmacion.texto)}</textarea>
-    <label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="kLr" ${L.recordatorio.on ? 'checked' : ''}><b>Recordatorio al cliente</b></label>
-    <div class="chips" id="kLt">${tiempos.map(([m, t]) => `<button type="button" class="chip ${m === minRec ? 'on' : ''}" data-m="${m}">${t}</button>`).join('')}<button type="button" class="chip ${esPropio ? 'on' : ''}" data-m="propio">Otro</button></div>
-    <label class="f" id="kLpW" ${esPropio ? '' : 'hidden'}>Minutos antes<input type="number" id="kLp" min="5" max="4320" value="${minRec}"></label>
-    <textarea id="kLrt" rows="3">${esc(L.recordatorio.texto)}</textarea>
-    <label class="check">Aviso de Windows para ti (minutos antes)<input type="number" id="kLa" min="0" max="120" value="${parseInt(L.avisoMin ?? 10)}" style="width:90px"></label>
-    <label class="f">Horas rápidas al agendar (separadas por coma)<input type="text" id="kLh" value="${esc((L.horas || []).join(', '))}" placeholder="10:00, 16:00"></label>
-    <button class="btn pri" id="kLs">Guardar llamadas</button>`;
-  let mSel = esPropio ? 'propio' : minRec;
-  $('kLt').querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { mSel = b.dataset.m === 'propio' ? 'propio' : +b.dataset.m; $('kLt').querySelectorAll('[data-m]').forEach((x) => x.classList.toggle('on', x === b)); $('kLpW').hidden = mSel !== 'propio'; }));
-  $('kLs').onclick = async () => {
-    const horas = $('kLh').value.split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^\d{1,2}:\d{2}$/.test(x)).slice(0, 3);
-    if (!horas.length) return toast('Escribe al menos una hora, por ejemplo 10:00');
-    CFG.llamadas = { horas, confirmacion: { on: $('kLc').checked, texto: $('kLct').value }, recordatorio: { on: $('kLr').checked, minutos: mSel === 'propio' ? Math.max(5, parseInt($('kLp').value) || 60) : mSel, texto: $('kLrt').value }, avisoMin: Math.max(0, parseInt($('kLa').value) || 0) };
-    await PUT('/api/config/llamadas', { valor: CFG.llamadas }); toast('Llamadas guardadas');
-  };
-  $('kPost').innerHTML = `<div class="hd"><h2>✨ Postventa y referidos</h2></div>
-    <span class="small muted">Se agendan solos cuando mueves un lead a <b>Ingresado</b>. Los ves y cancelas en "Mensajes agendados".</span>
-    <label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="kPb" ${P.bienvenida.on ? 'checked' : ''}><b>Bienvenida</b><span class="small muted">a los 2 minutos</span></label>
-    <textarea id="kPbt" rows="3">${esc(P.bienvenida.texto)}</textarea>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="kPc" ${P.control.on ? 'checked' : ''}><b>Control</b></label><span class="small muted">a los</span><input type="number" id="kPcd" min="1" max="365" value="${P.control.dias}" style="width:76px"><span class="small muted">días, 10:00</span></div>
-    <textarea id="kPct" rows="3">${esc(P.control.texto)}</textarea>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="kRo" ${R.on ? 'checked' : ''}><b>Pedir referidos</b></label><span class="small muted">a los</span><input type="number" id="kRd" min="1" max="365" value="${R.dias}" style="width:76px"><span class="small muted">días, 10:00</span></div>
-    <textarea id="kRt" rows="4">${esc(R.texto)}</textarea>
-    <span class="small muted">Cuando alguien llegue recomendado, anótalo en su ficha en "Referido por".</span>
-    <button class="btn pri" id="kPs">Guardar postventa</button>`;
-  $('kPs').onclick = async () => {
-    CFG.postventa = { bienvenida: { on: $('kPb').checked, texto: $('kPbt').value }, control: { on: $('kPc').checked, dias: Math.max(1, parseInt($('kPcd').value) || 30), texto: $('kPct').value } };
-    CFG.referidos = { on: $('kRo').checked, dias: Math.max(1, parseInt($('kRd').value) || 45), texto: $('kRt').value };
-    await PUT('/api/config/postventa', { valor: CFG.postventa }); await PUT('/api/config/referidos', { valor: CFG.referidos }); toast('Postventa guardada');
-  };
-  $('kRes').innerHTML = `<div class="hd"><h2>☀️ Resumen diario</h2><label class="check" style="font-size:13px;color:var(--muted)">Activo<input type="checkbox" id="kSo" ${RS.activo ? 'checked' : ''}></label></div>
-    <span class="small muted">Cada mañana te llega a tu propio WhatsApp: llamadas del día, recordatorios, chats sin responder, leads estancados, los que conversan sin próxima acción y leads de Meta.</span>
-    <label class="check">Hora de envío<input type="time" id="kSh" value="${esc(RS.hora || '08:30')}" style="width:130px"></label>
-    <span class="small muted">Si el PC está apagado a esa hora, sale apenas lo abras (hasta las 14:00).</span>
-    <button class="btn pri" id="kSs">Guardar resumen</button>`;
-  $('kSs').onclick = async () => { CFG.resumen = { activo: $('kSo').checked, hora: $('kSh').value || '08:30' }; await PUT('/api/config/resumen', { valor: CFG.resumen }); toast('Resumen diario guardado'); };
-  $('kSo').onchange = () => $('kSs').click();
+  renderAgendados();
 }
 async function guardarAuto() {
   const s = CFG.secuencia;
   s.pasos.forEach((p, i) => { p.texto = document.querySelector(`[data-t="${i}"]`).value; if (i) { p.activo = document.querySelector(`[data-act="${i}"]`).checked; p.horas = Math.max(1, parseInt(document.querySelector(`[data-h="${i}"]`).value) || p.horas); } });
   if (s.pasos[2].horas <= s.pasos[1].horas) { toast('El seguimiento 2 debe salir después del seguimiento 1'); return; }
-  s.pausada = $('aPausa').checked;
   await PUT('/api/config/secuencia', { valor: s });
   await PUT('/api/config/fueraHorario', { valor: { activa: $('fhOn').checked, texto: $('fhTxt').value } });
   toast('Cambios guardados. Aplican a todos los clientes.');
 }
-$('aPausa').onchange = async () => { CFG.secuencia.pausada = $('aPausa').checked; await PUT('/api/config/secuencia', { valor: CFG.secuencia }); toast($('aPausa').checked ? 'Seguimientos en pausa' : 'Seguimientos activos'); };
 
 // ---------------- Mensajes agendados (Automáticos) ----------------
 const ETIQ = { llamada: 'Confirmación de llamada', llamada_rec: 'Recordatorio de llamada', postventa: 'Bienvenida', control: 'Control postventa', referidos: 'Pedir referidos' };

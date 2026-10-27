@@ -655,18 +655,7 @@ function desprogramarLlamada(l) {
   for (const k of ['conf_id', 'rec_id']) if (l[k]) db.cancelarAgendado(l[k]);
   if (l.recordatorio_id) db.borrarRecordatorio(l.recordatorio_id);
 }
-// Postventa: al pasar a Ingresado se agendan la bienvenida, el control y la petición de referidos
-function alIngresar(tel) {
-  const c = db.contacto(tel); if (!c || c.postventa) return;
-  const pv = db.getConfig('postventa'), rf = db.getConfig('referidos'); const dest = destinoDe(tel);
-  const a10 = (dias) => { const d = new Date(); d.setDate(d.getDate() + Math.max(1, parseInt(dias) || 30)); d.setHours(10, 0, 0, 0); return d.toISOString(); };
-  const h = new Date().getHours();
-  const bien = h >= 9 && h < 21 ? new Date(Date.now() + 2 * 60000) : (() => { const d = new Date(); if (h >= 21) d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d; })();
-  if (pv.bienvenida?.on && String(pv.bienvenida.texto || '').trim()) db.crearAgendado({ texto: pv.bienvenida.texto, destinatarios: dest, fecha: bien.toISOString(), etiqueta: 'postventa', telefono: tel });
-  if (pv.control?.on && String(pv.control.texto || '').trim()) db.crearAgendado({ texto: pv.control.texto, destinatarios: dest, fecha: a10(pv.control.dias), etiqueta: 'control', telefono: tel });
-  if (rf.on && String(rf.texto || '').trim()) db.crearAgendado({ texto: rf.texto, destinatarios: dest, fecha: a10(rf.dias || 45), etiqueta: 'referidos', telefono: tel });
-  db.run('UPDATE contactos SET postventa = 1, ingreso_fecha = ? WHERE telefono = ?', [new Date().toISOString(), tel]);
-}
+// Postventa ya no se agenda sola (4.1.0); al salir de Ingresado se cancela la que quedó de antes
 function alSalirDeIngresado(tel) {
   db.cancelarAgendadosDe(tel, ['postventa', 'control', 'referidos']);
   db.run('UPDATE contactos SET postventa = 0 WHERE telefono = ?', [tel]);
@@ -692,40 +681,6 @@ function estadoLeads() {
   return { estancados: est.length, estancadosLista: est.slice(0, 12).map(corto), sinProx: sin.length, sinProxLista: sin.slice(0, 12).map(corto), diasEstancado: Math.max(1, parseInt(db.getConfig('estancado').dias) || 5) };
 }
 const finDeHoy = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
-function textoResumen() {
-  const d0 = new Date(); d0.setHours(0, 0, 0, 0); const d1 = new Date(d0.getTime() + 86400000);
-  const llam = db.llamadasEntre(d0.toISOString(), d1.toISOString());
-  const recs = db.recordatoriosHasta(d1.toISOString()).filter((r) => !r.llamada_id);
-  const sinResp = db.chatsSinResponder().length;
-  const L = estadoLeads();
-  const meta = db.leadsMetaDesde(new Date(d0.getTime() - 86400000).toISOString());
-  const prog = db.programados().filter((p) => new Date(p.fecha) < d1).length;
-  const nom = (x) => `${x.nombre || ''} ${x.apellido || ''}`.trim() || '+' + x.telefono;
-  const l = [`☀️ *Buenos días* · tu resumen de hoy`, ''];
-  l.push(`📞 Llamadas: ${llam.length}${llam.length ? '\n' + llam.slice(0, 8).map((x) => `   • ${horaTxt(x.fecha)} ${nom(x)}`).join('\n') : ''}`);
-  l.push(`🔔 Recordatorios: ${recs.length}${recs.length ? '\n' + recs.slice(0, 6).map((x) => `   • ${nom(x)}${x.texto ? ': ' + x.texto : ''}`).join('\n') : ''}`);
-  l.push(`💬 Chats sin responder: ${sinResp}`);
-  l.push(`🟠 Leads estancados (más de ${L.diasEstancado} días): ${L.estancados}`);
-  l.push(`⚠️ Conversando sin próxima acción: ${L.sinProx}`);
-  l.push(`🆕 Leads de Meta desde ayer: ${meta}`);
-  if (prog) l.push(`✉️ Envíos programados para hoy: ${prog}`);
-  l.push('', '_CRM HERMES_');
-  return l.join('\n');
-}
-async function resumenDiario() {
-  const cfg = db.getConfig('resumen');
-  if (!cfg.activo || wa.state !== 'listo' || !wa.me) return;
-  const hoy = new Date().toLocaleDateString('sv');
-  if (db.getConfig('resumen_ultimo', '') === hoy) return;
-  const [hh, mm] = String(cfg.hora || '08:30').split(':').map((x) => parseInt(x) || 0);
-  const ahora = new Date(); const t = new Date(); t.setHours(hh, mm, 0, 0);
-  if (ahora < t || ahora.getHours() >= 14) return;
-  db.setConfig('resumen_ultimo', hoy);
-  const texto = textoResumen();
-  try { await enviarA(wa.me, texto); db.registrarEnvio(wa.me, texto, 'resumen', 'enviado'); log('Resumen diario enviado a tu WhatsApp'); }
-  catch (e) { log('resumen diario: ' + (e.message || e)); }
-}
-setInterval(() => { resumenDiario().catch((e) => log('resumen: ' + e.message)); }, 60000);
 // Contactos repetidos: mismo nombre y apellido con distinto número
 const normNom = (c) => `${c.nombre || ''} ${c.apellido || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 function duplicados() {
@@ -1037,8 +992,8 @@ app.patch('/api/contactos/:tel', (req, res) => {
   const c = db.actualizarContacto(req.params.tel, { ...req.body, _manual: true });
   if (!c) return fail(res, 'No existe', 404);
   try {
-    if (antes && c.etapa === 'Ingresado' && antes.etapa !== 'Ingresado') alIngresar(c.telefono);
-    else if (antes && antes.etapa === 'Ingresado' && c.etapa !== 'Ingresado') alSalirDeIngresado(c.telefono);
+    // Al salir de Ingresado se cancela la postventa que quedó agendada de versiones anteriores
+    if (antes && antes.etapa === 'Ingresado' && c.etapa !== 'Ingresado') alSalirDeIngresado(c.telefono);
   } catch (e) { log('postventa: ' + e.message); }
   if (antes && req.body.etapa && req.body.etapa !== antes.etapa) act(req, 'Cambió de etapa', `${nombreC(c.telefono)}: ${antes.etapa} → ${c.etapa}${c.motivo_perdida && c.etapa === 'Perdido' ? ' (' + c.motivo_perdida + ')' : ''}`);
   else if (antes && 'calificacion' in req.body && req.body.calificacion !== antes.calificacion) act(req, 'Calificó un lead', `${nombreC(c.telefono)}: ${c.calificacion || 'sin calificar'}`);
@@ -1272,12 +1227,12 @@ app.post('/api/chats/:tel', async (req, res) => {
 });
 
 // Configuración
-const EDITABLES = ['reglas', 'secuencia', 'fueraHorario', 'respuestasRapidas', 'avisos', 'apariencia', 'ui', 'llamadas', 'resumen', 'postventa', 'referidos', 'estancado'];
+const EDITABLES = ['reglas', 'secuencia', 'fueraHorario', 'respuestasRapidas', 'avisos', 'apariencia', 'ui', 'llamadas', 'estancado'];
 app.get('/api/config', (req, res) => res.json(Object.fromEntries([...EDITABLES.map((k) => [k, db.getConfig(k)]), ['etapas', ETAPAS]])));
 app.put('/api/config/:clave', (req, res) => {
   const k = req.params.clave;
   if (!EDITABLES.includes(k)) return fail(res, 'No editable');
-  const libre = k === 'ui', auto = ['secuencia', 'fueraHorario', 'llamadas', 'postventa', 'referidos'].includes(k);
+  const libre = k === 'ui', auto = ['secuencia', 'fueraHorario', 'llamadas'].includes(k);
   if (!libre && !req.esAdmin && !(auto && req.permisos.automaticos)) return fail(res, 'Solo el administrador puede cambiar esto', 403);
   db.setConfig(k, req.body.valor);
   const NOM = { reglas: 'las reglas de envío', secuencia: 'los mensajes automáticos', fueraHorario: 'la respuesta fuera de horario', respuestasRapidas: 'las respuestas rápidas', avisos: 'los avisos', apariencia: 'la apariencia', llamadas: 'los mensajes de llamadas', resumen: 'el resumen diario', postventa: 'la postventa', referidos: 'el mensaje de referidos', estancado: 'los días para lead estancado' };
