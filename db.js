@@ -377,10 +377,10 @@ async function openDb(dataDir) {
     marcarSinSeguimiento: (id) => run('UPDATE cola SET sin_seguimiento = 1 WHERE id = ?', [id]),
     sinSeguimiento: (id) => !!(get('SELECT sin_seguimiento FROM cola WHERE id = ?', [id]) || {}).sin_seguimiento,
     // ---------- tandas
-    // Las de 2 contactos o más, con pendientes o creadas desde `desde`, de la más nueva a la más vieja
+    // Todas las que tienen pendientes (pueden frenar a un grupo «Después») y las terminadas de 2 o más contactos desde `desde`
     tandas: ({ desde }) => all(`SELECT t.*, COALESCE(SUM(c.estado = 'enviado'), 0) AS enviados, COALESCE(SUM(c.estado IN ('pendiente', 'enviando')), 0) AS pendientes,
         COALESCE(SUM(c.estado IN ('omitido', 'sacado', 'cancelado')), 0) AS omitidos, COALESCE(SUM(c.estado = 'error'), 0) AS errores
-      FROM tandas t LEFT JOIN cola c ON c.tanda = t.id WHERE t.total >= 2 GROUP BY t.id HAVING pendientes > 0 OR t.creada >= ? ORDER BY t.id DESC`, [desde]),
+      FROM tandas t LEFT JOIN cola c ON c.tanda = t.id GROUP BY t.id HAVING pendientes > 0 OR (t.total >= 2 AND t.creada >= ?) ORDER BY t.id DESC`, [desde]),
     tanda: (id) => get('SELECT * FROM tandas WHERE id = ?', [id]),
     // Lo necesario para los avisos de la confirmación (de a 500 teléfonos para no armar consultas enormes)
     datosParaAvisos: (tels) => {

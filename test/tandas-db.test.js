@@ -50,7 +50,7 @@ test('pausar y reanudar una tanda', async () => {
   assert.deepEqual(db.tandasQuePuedenEnviar().map((x) => x.id), [t]);
 });
 
-test('tandas() oculta las de una persona y las terminadas viejas', async () => {
+test('tandas() oculta las terminadas de una persona y las terminadas viejas', async () => {
   const db = await baseNueva();
   const sola = db.crearTanda({ nombre: 'Sola', usuario: 'Jesús', tipo: 'masivo', total: 1 });
   db.encolar([it('56911111111')], sola);
@@ -61,6 +61,8 @@ test('tandas() oculta las de una persona y las terminadas viejas', async () => {
   const viva = db.crearTanda({ nombre: 'Viva', usuario: 'Jesús', tipo: 'masivo', total: 2 });
   db.encolar([it('56944444444'), it('56955555555')], viva);
   const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+  assert.deepEqual(db.tandas({ desde }).map((x) => x.nombre), ['Viva', 'Sola']);   // Sola tiene pendiente: se ve (puede frenar a otros grupos)
+  db.run("UPDATE cola SET estado = 'enviado' WHERE tanda = ?", [sola]);
   assert.deepEqual(db.tandas({ desde }).map((x) => x.nombre), ['Viva']);
 });
 

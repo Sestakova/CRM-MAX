@@ -509,7 +509,7 @@ async function tick() {
   if (wa.state !== 'listo') { cola.espera = 'WhatsApp no está conectado'; return; }
   if (db.getConfig('cola_pausada', false)) { cola.espera = 'Envíos en pausa'; return; }
   const auto = db.siguienteAuto();
-  const tandas = db.tandasQuePuedenEnviar().map((t) => ({ id: t.id, item: db.siguienteDeTanda(t.id) }));
+  const tandas = db.tandasQuePuedenEnviar().map((t) => ({ id: t.id, modo: t.modo, item: db.siguienteDeTanda(t.id) }));
   if (!auto && !tandas.some((t) => t.item)) { cola.espera = null; return; }
   const r = db.getConfig('reglas');
   const horario = enHorario(), limite = db.enviadosHoy() >= r.limiteDiario;

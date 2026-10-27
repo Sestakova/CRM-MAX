@@ -56,6 +56,18 @@ test('despuesDeEnviar: un agendado no acorta la pausa', () => {
   assert.equal(d.nextAt, 1000 + 8000);
 });
 
+test('un grupo Después que recién parte espera la pausa del grupo anterior', () => {
+  const carriles = { t1: { nextAt: 90000 } };   // el grupo 1 mandó su último mensaje y le quedaba pausa
+  assert.equal(C.elegir({ auto: null, tandas: [{ id: 2, modo: 'despues', item: { id: 20 } }], carriles, ahora: 2000, puedeMasivo: true }), null);
+  assert.equal(carriles.t2.nextAt, 90000);
+  assert.equal(C.elegir({ auto: null, tandas: [{ id: 2, modo: 'despues', item: { id: 20 } }], carriles, ahora: 90000, puedeMasivo: true }).clave, 't2');
+});
+
+test('un grupo Corriendo parte al tiro aunque otro esté en pausa', () => {
+  const carriles = { t1: { nextAt: 90000 } };
+  assert.equal(C.elegir({ auto: null, tandas: [{ id: 2, modo: 'corriendo', item: { id: 20 } }], carriles, ahora: 2000, puedeMasivo: true }).clave, 't2');
+});
+
 test('trasError espera 15 s', () => {
   const c = {};
   C.trasError(c, 1000);

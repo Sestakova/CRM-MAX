@@ -948,7 +948,7 @@ async function verTanda(id, pestana = 'pend') {
     const limpiar = () => lista.querySelectorAll('.sobre,.sobre-abajo,.arrastrando').forEach((x) => x.classList.remove('sobre', 'sobre-abajo', 'arrastrando'));
     const destino = (e) => { const f = e.target.closest('.clrow[data-est="pendiente"]'); return f && f.dataset.id != arrastrado ? f : null; };
     lista.addEventListener('dragstart', (e) => { const f = e.target.closest('.clrow'); if (!f || !e.target.classList.contains('asa')) return; arrastrado = f.dataset.id; f.classList.add('arrastrando'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', arrastrado); e.dataTransfer.setDragImage(f, 20, 16); });
-    lista.addEventListener('dragover', (e) => { if (!arrastrado) return; const f = destino(e); if (!f) return; e.preventDefault(); const abajo = e.offsetY > f.offsetHeight / 2 && e.target === f; lista.querySelectorAll('.sobre,.sobre-abajo').forEach((x) => x.classList.remove('sobre', 'sobre-abajo')); f.classList.add(abajo ? 'sobre-abajo' : 'sobre'); });
+    lista.addEventListener('dragover', (e) => { if (!arrastrado) return; const f = destino(e); if (!f) return; e.preventDefault(); const r = f.getBoundingClientRect(), abajo = e.clientY > r.top + r.height / 2; lista.querySelectorAll('.sobre,.sobre-abajo').forEach((x) => x.classList.remove('sobre', 'sobre-abajo')); f.classList.add(abajo ? 'sobre-abajo' : 'sobre'); });
     lista.addEventListener('dragend', () => { arrastrado = null; limpiar(); });
     lista.addEventListener('drop', async (e) => {
       const f = destino(e); if (!arrastrado || !f) return; e.preventDefault();

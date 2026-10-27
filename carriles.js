@@ -15,6 +15,11 @@ function elegir({ auto, tandas, carriles, ahora, puedeMasivo }) {
   if (puedeMasivo) {
     for (const t of tandas) {
       if (!t.item) continue;
+      // Un grupo «Después» que recién parte hereda la pausa pendiente del grupo que terminó: no sale pegado a su último mensaje
+      if (!carriles['t' + t.id] && t.modo !== 'corriendo') {
+        const previa = Math.max(0, ...Object.keys(carriles).filter((k) => k[0] === 't').map((k) => carriles[k].nextAt || 0));
+        carril(carriles, 't' + t.id).nextAt = previa;
+      }
       const c = carril(carriles, 't' + t.id);
       if ((c.nextAt || 0) <= ahora) listos.push({ clave: 't' + t.id, item: t.item, nextAt: c.nextAt || 0, id: t.id });
     }
