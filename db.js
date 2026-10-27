@@ -352,6 +352,17 @@ async function openDb(dataDir) {
         COALESCE(SUM(c.estado IN ('omitido', 'sacado', 'cancelado')), 0) AS omitidos, COALESCE(SUM(c.estado = 'error'), 0) AS errores
       FROM tandas t LEFT JOIN cola c ON c.tanda = t.id WHERE t.total >= 2 GROUP BY t.id HAVING pendientes > 0 OR t.creada >= ? ORDER BY t.id DESC`, [desde]),
     tanda: (id) => get('SELECT * FROM tandas WHERE id = ?', [id]),
+    // Lo necesario para los avisos de la confirmación (de a 500 teléfonos para no armar consultas enormes)
+    datosParaAvisos: (tels) => {
+      const m = new Map();
+      for (let i = 0; i < tels.length; i += 500) {
+        const parte = tels.slice(i, i + 500);
+        for (const r of all(`SELECT c.telefono, c.etapa, c.ultimo_entrante, c.seq_estado,
+            (SELECT MAX(e.fecha) FROM envios e WHERE e.telefono = c.telefono AND e.tipo IN ('masivo', 'programado') AND e.estado = 'enviado') AS ultimoMasivo
+          FROM contactos c WHERE c.telefono IN (${parte.map(() => '?').join(',')})`, parte)) m.set(r.telefono, r);
+      }
+      return m;
+    },
     itemsDeTanda: (id) => all(`SELECT q.id, q.telefono, q.estado, q.detalle, q.procesado, q.orden, c.nombre, c.apellido, c.ultimo_entrante
       FROM cola q LEFT JOIN contactos c ON c.telefono = q.telefono WHERE q.tanda = ? ORDER BY COALESCE(q.orden, q.id)`, [id]),
     sacarDeTanda: (itemId, usuario) => { db.run("UPDATE cola SET estado = 'sacado', detalle = ?, procesado = ? WHERE id = ? AND estado = 'pendiente'", ['Sacado por ' + usuario, now(), itemId]); const n = db.getRowsModified(); if (n) save(); return n ? 'sacado' : 'ya_salio'; },
