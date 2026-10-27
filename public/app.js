@@ -320,7 +320,6 @@ function contactoModal(c = {}, onSaved) {
       <label class="f">Isapre actual o Fonasa<input type="text" id="mI" value="${esc(c.isapre)}" list="isaList"></label>
       <label class="f">Etapa<select id="mEt">${ETAPAS.map((e) => `<option ${e === (c.etapa || 'Nuevo') ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
       <label class="f">Calificación<select id="mCa"><option value="">Sin calificar</option>${CALIF.map((e) => `<option ${e === c.calificacion ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
-      <label class="f">Referido por<input type="text" id="mRef" value="${esc(c.referido_por)}" placeholder="Quién te lo recomendó (opcional)"></label>
       <label class="f" id="mMoW">Motivo de pérdida<select id="mMo"><option value=""></option>${MOTIVOS.map((e) => `<option ${e === c.motivo_perdida ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
     </div>
     <datalist id="isaList">${['Fonasa', 'Banmédica', 'Colmena', 'Consalud', 'Cruz Blanca', 'Esencial', 'Nueva Masvida', 'Vida Tres'].map((x) => `<option>${x}</option>`).join('')}</datalist>
@@ -336,12 +335,12 @@ function contactoModal(c = {}, onSaved) {
       if ($('mDel')) $('mDel').onclick = async () => { if (!confirm('¿Eliminar este contacto? Los mensajes del chat se mantienen.')) return; await DEL('/api/contactos/' + c.telefono); close(); onSaved && onSaved(); };
     }
     $('mSave').onclick = async () => {
-      const campos = { nombre: $('mN').value, apellido: $('mA').value, edad: $('mE').value, renta: $('mR').value, cargas: $('mC').value, isapre: $('mI').value, etapa: $('mEt').value, calificacion: $('mCa').value, motivo_perdida: $('mEt').value === 'Perdido' ? $('mMo').value : '', referido_por: $('mRef').value };
+      const campos = { nombre: $('mN').value, apellido: $('mA').value, edad: $('mE').value, renta: $('mR').value, cargas: $('mC').value, isapre: $('mI').value, etapa: $('mEt').value, calificacion: $('mCa').value, motivo_perdida: $('mEt').value === 'Perdido' ? $('mMo').value : '' };
       try {
         if (nuevo) {
           const tel = normPhone($('mT').value); if (!tel) { $('mErr').textContent = 'Revisa el teléfono (ej: +56 9 1234 5678)'; return; }
           await POST('/api/contactos', { ...campos, telefono: tel });
-          await PATCH('/api/contactos/' + tel, { etapa: campos.etapa, calificacion: campos.calificacion, motivo_perdida: campos.motivo_perdida, referido_por: campos.referido_por });
+          await PATCH('/api/contactos/' + tel, { etapa: campos.etapa, calificacion: campos.calificacion, motivo_perdida: campos.motivo_perdida });
         } else await PATCH('/api/contactos/' + c.telefono, campos);
         close(); toast('Contacto guardado'); onSaved && onSaved();
       } catch (e) { $('mErr').textContent = e.message; }
@@ -435,7 +434,7 @@ function pintarFicha(d) {
     const seq = c.seq_estado === 'activa' ? `En curso · paso ${Math.min(c.seq_paso || 1, 3)} de 3` : c.seq_estado === 'detenida' ? 'Detenida: ' + (c.seq_motivo || '') : c.seq_estado === 'terminada' ? 'Terminada' : 'Sin secuencia';
     f.innerHTML = `<h2 class="fh">Ficha del lead</h2>
       ${bloqueProx}
-      ${[['Nombre', [c.nombre, c.apellido].filter(Boolean).join(' ')], ['Edad', c.edadActual ? c.edadActual + ' años' : ''], ['Renta', c.renta ? money(c.renta) : ''], ['Cargas', c.cargas], ['Isapre/Fonasa', c.isapre], ['Referido por', c.referido_por]].filter(([k, v]) => k !== 'Referido por' || v).map(([k, v]) => `<div class="kv"><span>${k}</span><b style="text-align:right">${esc(v || '—')}</b></div>`).join('')}
+      ${[['Nombre', [c.nombre, c.apellido].filter(Boolean).join(' ')], ['Edad', c.edadActual ? c.edadActual + ' años' : ''], ['Renta', c.renta ? money(c.renta) : ''], ['Cargas', c.cargas], ['Isapre/Fonasa', c.isapre]].map(([k, v]) => `<div class="kv"><span>${k}</span><b style="text-align:right">${esc(v || '—')}</b></div>`).join('')}
       ${c.estancado ? `<div class="kv"><span>En esta etapa</span><b style="color:var(--warn)">${c.diasEtapa} días · estancado</b></div>` : ''}
       <div class="fsec"><span class="small muted" style="font-weight:700">Calificación</span><div class="chips">${CALIF.map((x) => `<button class="chip ${x === c.calificacion ? 'on' : ''}" data-cal="${x}">${x}</button>`).join('')}</div></div>
       ${c.etapa === 'Perdido' && c.motivo_perdida ? `<div class="kv"><span>Motivo de pérdida</span><b>${esc(c.motivo_perdida)}</b></div>` : ''}
@@ -1251,8 +1250,7 @@ async function loadMetricas() {
     { c: 't1', k: 'Leídos', n: pct(d.leidos), s: 'Doble check azul' },
     { c: 't2', k: 'Tasa de respuesta', n: pct(d.tasaRespuesta), s: `${d.respondieron} respondieron` },
     { c: alertaBajas ? 't6' : 't4', k: 'Bajas', n: pct(d.tasaBajas), s: alertaBajas ? 'Sobre 2%: baja el ritmo o revisa el mensaje' : 'Bajo el límite de 2%' },
-    { c: 't3', k: 'Ingresados', n: d.ingresados, s: `${d.nuevos} contactos nuevos en el período` },
-    { c: 't5', k: 'Referidos', n: d.referidos || 0, s: 'Llegaron recomendados por un cliente' }
+    { c: 't3', k: 'Ingresados', n: d.ingresados, s: `${d.nuevos} contactos nuevos en el período` }
   ];
   // Mejor hora para enviar: de cada hora, cuántos responden
   const hs = (d.horas || []).filter((x) => x.h >= 7 && x.h <= 22);
