@@ -1,0 +1,48 @@
+{
+  "name": "enviador-whatsapp",
+  "productName": "CRM HERMES",
+  "version": "4.0.1",
+  "description": "CRM HERMES · Conecta Salud",
+  "author": "Conecta Salud",
+  "main": "main.js",
+  "scripts": {
+    "postinstall": "node build/aplicar-parches.js",
+    "start": "electron .",
+    "build": "electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "sql.js": "^1.13.0",
+    "whatsapp-web.js": "1.34.7",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "electron": "38.8.6",
+    "electron-builder": "26.0.20",
+    "resedit": "^2.0.3"
+  },
+  "build": {
+    "appId": "cl.conectasalud.enviador",
+    "productName": "CRM HERMES",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "server.js", "db.js", "meta.js", "auth.js", "public/**", "package.json", "node_modules/**", "build/icon.png", "build/icon.ico"],
+    "win": { "target": "nsis", "icon": "build/icon.ico", "signAndEditExecutable": false },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CRM HERMES",
+      "artifactName": "Instalar-CRM-HERMES.exe",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "CRM HERMES"
+    },
+    "asar": false,
+    "publish": [{ "provider": "github", "owner": "Sestakova", "repo": "crm-max", "releaseType": "release" }],
+    "afterPack": "build/afterPack.js"
+  },
+  "updateRepo": "Sestakova/crm-max"
+}

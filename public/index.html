@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<link rel="icon" href="logo.png">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRM HERMES</title>
+<link rel="stylesheet" href="app.css">
+<script src="/vendor/xlsx.js"></script>
+</head>
+<body class="locked hub">
+<div class="app" id="app">
+<header class="topbar" id="topbar">
+  <button class="brand" data-go="inicio" title="Volver al Inicio" aria-label="CRM HERMES, volver al Inicio">
+    <svg width="40" height="40" viewBox="0 0 200 200" aria-hidden="true"><rect width="200" height="200" rx="46" fill="#2F4A3C"/><path d="M40 152 C40 102 80 56 162 44 C152 70 132 86 106 96 C130 94 148 90 162 84 C150 108 126 120 98 124 C118 126 134 124 146 120 C130 140 98 154 40 152 Z" fill="#F6ECDA"/><circle cx="58" cy="64" r="15" fill="#B4472C"/></svg>
+    <span class="wordmark">CRM HERMES</span>
+  </button>
+  <span class="grow"></span>
+  <button class="hb buscar" id="bBuscar" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z M20 20l-4-4"/></svg><span class="lbl">Buscar contacto</span><kbd>Ctrl K</kbd></button>
+  <button class="estado" id="bEstado" type="button" data-go="config" title="Ver conexión"><span class="dot" id="waDot"></span><span id="waTxt">Iniciando…</span><span class="muted sm-hide" id="hoyTxt"></span></button>
+  <span class="uf sm-hide" id="ufCard" title=""><span class="muted">UF</span> <b id="ufHoy">—</b></span>
+  <button class="hb ico" id="bCampana" type="button" aria-label="Recordatorios de hoy" title="Recordatorios de hoy"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 20a2 2 0 0 0 4 0"/></svg><span class="cbadge" id="campBadge" hidden></span></button>
+  <button class="hb ico" id="bConfig" type="button" data-go="config" aria-label="Configuración" title="Configuración"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  <button class="hb ico" id="meLock" type="button" aria-label="Bloquear ahora" title="Bloquear ahora"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button>
+</header>
+<div class="banner" id="waBanner" hidden><span class="dot bad"></span><span class="grow" id="waBannerTxt"></span><button class="btn sm" data-go="config">Ver conexión</button></div>
+
+<div class="stage" id="stage">
+  <svg class="hilos" id="hilos" aria-hidden="true"></svg>
+  <button class="centro" id="centro" type="button" data-go="hoy" aria-label="Ver tu día">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9H15v-6H9v6H3z"/></svg>
+    <span class="cn">Inicio</span><span class="cs" id="saludo">Hola</span><span class="cp" id="pendHoy">Ver tu día</span>
+  </button>
+  <nav class="sats" id="sats" aria-label="Secciones"></nav>
+  <button class="met" id="metBtn" type="button" data-go="metricas" aria-label="Métricas"><span class="pista" id="metPista">¿Cómo vas este mes? <b>Toca para ver tus métricas</b></span><span class="burbuja"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V11 M12 20V5 M19 20v-6 M3 20h18"/></svg><span>Métricas</span></span></button>
+  <div class="consejo" id="consejo" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F4A3C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="M9 18h6 M10 21h4 M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg><span>Toca una sección para abrirla: los círculos bajan y la sección se abre arriba. Toca el círculo del centro para ver tu día. Atajos: 1 a 6 y Esc. <button type="button" class="lnk" id="consejoOk">Entendido</button></span></div>
+
+<main class="caja" id="caja">
+  <header class="top"><div class="grow" style="min-width:0"><h1 id="title">Inicio</h1><p id="subtitle"></p></div><div id="headActions" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"></div></header>
+
+  <!-- TU DÍA (Inicio) -->
+  <section class="view" id="v-hoy">
+    <div class="grid g4" id="iTiles"></div>
+    <div class="grid g2" style="margin-top:16px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="glass"><div class="card" style="padding-bottom:6px"><div class="hd"><h2>Llamadas y recordatorios</h2></div></div><div id="iRec"></div></div>
+        <div class="glass"><div class="card" style="padding-bottom:6px"><div class="hd"><h2>Sin respuesta hace más de 24 horas</h2><button class="btn sm" data-go="chats">Ir a Chats</button></div></div><div id="iChats"></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="glass"><div class="card" style="padding-bottom:6px"><div class="hd"><h2>Conversando sin próxima acción</h2><span class="small muted">Agenda algo para no perderlos</span></div></div><div id="iSinProx"></div></div>
+        <div class="glass"><div class="card" style="padding-bottom:6px"><div class="hd"><h2>Leads estancados</h2><button class="btn sm" data-go="pipeline">Pipeline</button></div></div><div id="iEst"></div></div>
+        <div class="glass"><div class="card" style="padding-bottom:6px"><h2>Próximos envíos programados</h2></div><div id="iProg"></div></div>
+        <div class="glass card"><h2>Salud del número</h2><div id="iSalud"></div></div>
+      </div>
+    </div>
+  </section>
+  <!-- LEADS DE META -->
+  <section class="view" id="v-leads"><div id="lBody"></div></section>
+
+  <!-- MÉTRICAS -->
+  <section class="view" id="v-metricas"><div id="mBody"></div></section>
+
+  <!-- CHATS -->
+  <section class="view fill" id="v-chats">
+    <div class="wawrap">
+      <div class="wacol">
+        <div class="etbar glass" id="waBar"></div>
+        <div class="wahost" id="waHost"><div class="empty" id="waMsg">Abriendo WhatsApp…</div></div>
+      </div>
+      <aside class="ficha glass" id="cFicha"></aside>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section class="view fill" id="v-pipeline">
+    <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap">
+      <label class="f">Calificación<select id="pCal"><option value="">Todas</option><option>Calificado</option><option>Posible prospecto</option><option>No calificado</option><option>Sin calificar</option></select></label>
+      <label class="f">Isapre/Fonasa<select id="pIsa"><option value="">Todas</option></select></label>
+      <label class="f">Buscar<input type="search" id="pQ" placeholder="Nombre o teléfono" style="width:220px"></label>
+      <label class="check" style="gap:8px;align-self:center;margin-top:18px"><input type="checkbox" id="pEst"><span>Solo estancados</span></label>
+      <span class="grow"></span>
+      <span class="small muted" id="pLeyenda" style="align-self:center"></span>
+      <button class="btn" id="pDup" hidden>Contactos repetidos</button>
+      <button class="btn pri" id="pNuevo">Nuevo contacto</button>
+    </div>
+    <div class="board" id="board" style="flex:1;min-height:0"></div>
+  </section>
+
+  <!-- ENVÍOS -->
+  <section class="view" id="v-envios">
+    <div class="grid" style="grid-template-columns:minmax(0,1fr) 380px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="glass card">
+          <div class="hd"><h2>1 · Destinatarios</h2><div style="display:flex;gap:10px;align-items:center"><span class="pill p-ok" id="eTotal">0 contactos</span><button class="btn verde" id="eWa">Elegir de WhatsApp</button><button class="btn" id="eImport">Importar Excel</button><input type="file" id="eFile" accept=".xlsx,.xls,.csv" hidden></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <label class="f grow">Nombre<input type="text" id="eNom" placeholder="Ej: Camila Rojas"></label>
+            <label class="f" style="width:210px">Teléfono<input type="tel" id="eTel" placeholder="+56 9 1234 5678"></label>
+            <button class="btn pri" id="eAdd">Agregar</button>
+          </div>
+          <div class="chips" id="eChips"></div>
+          <span class="small muted" id="eMsg"></span>
+        </div>
+        <div class="glass card">
+          <div class="hd"><h2>2 · Mensaje</h2><button class="btn" id="eUsarM1">Usar Mensaje 1 de la secuencia</button></div>
+          <div class="tools"><div class="chips" id="eVars"></div><span class="grow"></span><button class="btn sm" id="eEmoji" type="button">😊 Emojis</button><button class="btn sm" id="eAdj" type="button">📎 Foto o video</button><input type="file" id="eAdjFile" accept="image/*,video/mp4,video/*" hidden></div>
+          <div class="adjbox" id="eAdjBox" hidden></div>
+          <div id="eVersiones"></div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn sm" id="eAddVer" type="button">+ Agregar otra versión</button><span class="small muted" id="eVerInfo">Con 2 o más versiones, a cada persona le llega una al azar. Así los mensajes no son idénticos.</span></div>
+          <label class="check" style="justify-content:flex-start;margin-top:4px"><input type="checkbox" id="eSegOn"><span>Agregar un segundo mensaje <span class="muted">(llega unos segundos después del primero)</span></span></label>
+          <div id="eSegBox" hidden><label><span class="srh">Segundo mensaje</span><textarea id="eSeg" rows="3" placeholder="Ej: ¿Te acomoda que te llame hoy o mañana? 🙂"></textarea></label></div>
+        </div>
+        <div class="glass card">
+          <div class="hd"><h2>3 · Sumar un segmento <span class="muted" style="font-size:14px">(opcional)</span></h2><div style="display:flex;gap:12px;align-items:center"><span class="pill p-ok" id="sCount">+0</span><label class="check" style="color:var(--muted);font-size:13px">Usar segmento<input type="checkbox" id="sOn"></label></div></div>
+          <div class="grid g4" id="sFilters">
+            <label class="f">Etapa<select id="sEtapa"><option value="">Todas</option></select></label>
+            <label class="f">Calificación<select id="sCal"><option value="">Todas</option><option>Calificado</option><option>Posible prospecto</option><option>No calificado</option><option>Sin calificar</option></select></label>
+            <label class="f">Isapre/Fonasa<select id="sIsa"><option value="">Todas</option></select></label>
+            <label class="f">Cargas<select id="sCar"><option value="">Da igual</option><option value="con">Con cargas</option><option value="sin">Sin cargas</option></select></label>
+            <label class="f">Edad desde<input type="number" id="sEMin" min="0"></label>
+            <label class="f">Edad hasta<input type="number" id="sEMax" min="0"></label>
+            <label class="f">Renta desde ($)<input type="number" id="sRMin" min="0" step="50000"></label>
+          </div>
+          <span class="small muted">Siempre se excluyen quienes pidieron BAJA y los números sin WhatsApp.</span>
+        </div>
+        <div class="glass card">
+          <h2>4 · Cuándo</h2>
+          <label class="check" style="justify-content:flex-start">
+            <input type="checkbox" id="eSeq" checked><span>Iniciar seguimiento automático si no responden (24 h y 72 h)</span></label>
+          <label class="check" style="justify-content:flex-start"><input type="checkbox" id="eNoRep"><span>No enviar a quienes ya les escribí antes</span></label>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <button class="btn pri lg" id="eNow">Enviar ahora</button>
+            <span class="muted" style="margin-bottom:12px">o</span>
+            <label class="f">Nombre del envío<input type="text" id="eProgNom" placeholder="Ej: Promo cargas" style="width:180px"></label>
+            <label class="f">Fecha y hora<input type="datetime-local" id="eWhen"></label>
+            <button class="btn lg" id="eProg">Programar</button>
+          </div>
+          <span class="small" id="eRes"></span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;position:sticky;top:0">
+        <div class="glass phone"><div class="ph"><div><b id="pvName">Vista previa</b><div class="small" id="pvPos"></div></div><div style="display:flex;gap:6px"><button class="btn" id="pvPrev" aria-label="Anterior">‹</button><button class="btn" id="pvNext" aria-label="Siguiente">›</button></div></div><div class="pb" id="pvBox"><div class="b out">Agrega destinatarios y escribe el mensaje.</div></div></div>
+        <div class="glass card" id="qCard">
+          <div class="hd"><h2>Cola de envío</h2><span class="small muted" id="qInfo"></span></div>
+          <div class="bar"><div id="qBar" style="width:0"></div></div>
+          <span class="small" id="qEspera"></span>
+          <div style="display:flex;gap:8px"><button class="btn" id="qPause">Pausar</button><button class="btn danger" id="qCancel">Cancelar pendientes</button></div>
+          <div class="log" id="qLog"></div>
+        </div>
+        <div class="glass"><div class="card" style="padding-bottom:6px"><h2>Programados</h2></div><div id="eProgList"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AUTOMÁTICOS -->
+  <section class="view" id="v-auto">
+    <div class="glass" style="margin-bottom:20px"><div class="card" style="padding-bottom:6px"><div class="hd"><div><h2>Mensajes agendados</h2><span class="small muted">Avisos a uno o varios clientes en la fecha y hora que elijas: firmas, documentos, pagos, reuniones.</span></div><button class="btn pri" id="agNuevo">Agendar mensaje</button></div></div><div id="agList"></div></div>
+    <div class="grid g3" style="margin-bottom:20px;align-items:start">
+      <div class="glass card" id="kLlam"></div>
+      <div class="glass card" id="kPost"></div>
+      <div class="glass card" id="kRes"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px"><h2 style="margin:0;font-size:20px;font-weight:500">Secuencia de seguimiento</h2><span class="muted small">Se detiene sola si el lead responde, pide BAJA o lo mueves de etapa · los cambios aplican a todos</span></div>
+    <div class="steps" id="aSteps"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="glass card">
+        <div class="hd"><h2>Respuesta fuera de horario</h2><label class="check" style="font-size:13px;color:var(--muted)">Activa<input type="checkbox" id="fhOn"></label></div>
+        <span class="small muted" id="fhInfo"></span>
+        <textarea id="fhTxt" rows="4"></textarea>
+      </div>
+      <div class="glass card">
+        <h2>Estado de la secuencia</h2>
+        <div id="aEstado" class="small"></div>
+        <label class="check">Pausar todos los seguimientos<input type="checkbox" id="aPausa"></label>
+        <span class="small muted">El Mensaje 1 se usa en Envíos (botón "Usar Mensaje 1") y es el primer mensaje a los leads de Meta.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONFIGURACIÓN -->
+  <section class="view" id="v-config">
+    <div class="grid g3" style="align-items:start">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="glass card" id="kWa"></div>
+        <div class="glass card">
+          <h2>Avisos de Windows</h2>
+          <label class="check">Llega un chat nuevo<input type="checkbox" data-av="chatNuevo"></label>
+          <label class="check">Un contacto pide BAJA<input type="checkbox" data-av="baja"></label>
+          <label class="check">Llega un lead de Meta<input type="checkbox" data-av="leadNuevo"></label>
+          <label class="check">Sonido en los avisos<input type="checkbox" data-av="sonido"></label>
+        </div>
+        <div class="glass card">
+          <h2>Seguridad</h2>
+          <span class="small muted">El programa se bloquea solo si pasan 30 minutos sin que respondas ningún chat. Al cerrarlo también pide el PIN.</span>
+          <div class="kv" style="align-items:center"><span>PIN de ingreso (4 números)</span><button class="btn" id="sPin">Cambiar PIN</button></div>
+          <div class="kv" style="align-items:center"><span>Código de recuperación, por si olvidas el PIN</span><button class="btn" id="sRec">Generar nuevo</button></div>
+          <div class="kv" style="align-items:center"><span>Respaldo de contactos, chats y configuración</span><a class="btn" href="/api/respaldo">Descargar</a></div>
+        </div>
+        <div class="glass card">
+          <h2>Ayudas en pantalla</h2>
+          <label class="check">Mostrar qué hace cada sección al pasar el cursor<input type="checkbox" id="uDesc"></label>
+          <label class="check">Mostrar consejos de uso al abrir el programa<input type="checkbox" id="uCons"></label>
+          <span class="small muted">Atajos: 1 Inicio · 2 Chats · 3 Pipeline · 4 Envíos · 5 Leads de Meta · 6 Automáticos · Esc vuelve a Inicio · Ctrl K busca un contacto</span>
+        </div>
+        <div class="glass card">
+          <h2>Leads estancados</h2>
+          <label class="check">Marcar en naranjo después de (días en la misma etapa)<input type="number" id="uEst" min="1" max="60" style="width:90px"></label>
+          <span class="small muted">Aplica a Contactado, Respondió, Cotización enviada y Firma/documentos.</span>
+        </div>
+      </div>
+      <div class="glass card">
+        <h2>Reglas de envío</h2>
+        <span class="small muted" style="font-weight:700">Horario permitido</span>
+        <div id="rHor"></div>
+        <div style="height:1px;background:var(--line2)"></div>
+        <label class="check">Máximo de mensajes por día<input type="number" id="rLim" min="1" style="width:100px"></label>
+        <label class="check">Espera mínima entre mensajes (seg)<input type="number" id="rMin" min="0" style="width:100px"></label>
+        <label class="check">Espera máxima entre mensajes (seg)<input type="number" id="rMax" min="0" style="width:100px"></label>
+        <label class="check">Descanso cada (mensajes)<input type="number" id="rCada" min="0" style="width:100px"></label>
+        <label class="check">Duración del descanso (min)<input type="number" id="rDesc" min="1" style="width:100px"></label>
+        <button class="btn pri" id="rSave">Guardar reglas</button>
+        <span class="small muted">El máximo diario suma envíos masivos, programados y seguimientos. Tus respuestas manuales en Chats no cuentan.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        
+        <div class="glass card">
+          <h2>Etapas y etiquetas</h2>
+          <div class="small"><b class="muted">Pipeline:</b> Nuevo · Contactado · Respondió · Cotización enviada · Firma/documentos · Ingresado · Perdido</div>
+          <div class="small"><b class="muted">Calificación:</b> Calificado · Posible prospecto · No calificado</div>
+          <div class="small"><b class="muted">Motivos de pérdida:</b> No contesta · No calificado · Precio · Se quedó en su Isapre</div>
+        </div>
+        <div class="glass card" id="kUp"></div>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+</div>
+
+<div class="pop" id="campPop" hidden role="dialog" aria-label="Recordatorios de hoy"></div>
+<div class="buscador" id="buscador" hidden><div class="bbox" role="dialog" aria-label="Buscar contacto"><label class="bq"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z M20 20l-4-4"/></svg><span class="srh">Buscar</span><input type="text" id="bqIn" placeholder="Nombre o teléfono" autocomplete="off"></label><div id="bqRes"></div><div class="bpie"><span>Enter abre el chat del primero · ↑ ↓ para moverte</span><button type="button" class="lnk" id="bqX">Cerrar (Esc)</button></div></div></div>
+<div class="upcard" id="upCard" hidden></div>
+<div class="bienvenida" id="bienvenida" hidden></div>
+<div class="lock" id="lock" role="dialog" aria-modal="true" aria-label="Ingreso a CRM HERMES"><div class="lock-card" id="lockCard"></div></div>
+<div class="modal" id="modal" hidden><div class="box glass" id="modalBox" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
