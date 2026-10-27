@@ -524,6 +524,7 @@ async function tick() {
     const texto = vers.length > 1 ? fill(plantilla, { ...(it.datos.contacto || {}), ...ct }) : await textoPara(it, ct);
     const media = it.datos.adjunto ? mediaDeAdjunto(it.datos.adjunto) : null;
     if (it.datos.adjunto && !media) return cerrar('error', 'La foto o video ya no está en el PC');
+    if (!db.marcarEnviando(it.id)) return;   // lo sacaron de la tanda justo ahora
     try {
       if (media) await enviarA(tel, media, { caption: texto || undefined, sendMediaAsDocument: !/^(image|video)\//.test(media.mimetype) });
       else await enviarA(tel, texto);
@@ -579,7 +580,8 @@ function revisarProgramados() {
   for (const p of db.programadosVencidos()) {
     const ex = p.extra || {};
     const versiones = Array.isArray(ex.versiones) && ex.versiones.length ? [p.texto, ...ex.versiones.slice(1)] : null;
-    db.encolar(p.destinatarios.map((c) => ({ telefono: c.telefono, texto: p.texto, tipo: 'programado', datos: { contacto: c, secuencia: !!p.secuencia, versiones, adjunto: ex.adjunto || null, segundo: ex.segundo || '', noRepetir: !!ex.noRepetir } })));
+    const tanda = db.crearTanda({ nombre: p.nombre || 'Envío programado', usuario: (p.destinatarios[0] && p.destinatarios[0]._usuario) || null, tipo: 'programado', programado: p.id, total: p.destinatarios.length });
+    db.encolar(p.destinatarios.map((c) => ({ telefono: c.telefono, texto: p.texto, tipo: 'programado', datos: { contacto: c, secuencia: !!p.secuencia, versiones, adjunto: ex.adjunto || null, segundo: ex.segundo || '', noRepetir: !!ex.noRepetir } })), tanda);
     db.estadoProgramado(p.id, 'enviado');
     evento({ estado: 'programado', detalle: `"${p.nombre || 'Envío programado'}" pasó a la cola (${p.destinatarios.length} contactos)` });
   }
@@ -1041,6 +1043,20 @@ app.post('/api/contactos/importar', puede('masivos'), (req, res) => {
 app.post('/api/segmento', (req, res) => { const l = db.buscarContactos({ ...(req.body.filtros || {}), sinBajas: true }); ok(res, { n: l.length, muestra: l.slice(0, 3) }); });
 
 // Envíos
+const TANDAS = require('./tandas');
+const sinPermisoMasivo = (req, b) => !req.esAdmin && !req.permisos.masivos && (b.segmento || (b.destinatarios || []).length > 5);
+const MSJ_SIN_PERMISO = 'Tu usuario puede enviar a máximo 5 contactos a la vez y sin segmentos. Pídele permiso de envíos masivos al administrador.';
+// Lista completa para revisar antes de enviar, con los avisos de cada persona (no guarda nada)
+app.post('/api/envios/vista', (req, res) => {
+  const b = req.body || {};
+  if (sinPermisoMasivo(req, b)) return fail(res, MSJ_SIN_PERMISO, 403);
+  const { lista, invalidos } = TANDAS.unirDestinatarios(b, { normPhone, buscarContactos: db.buscarContactos });
+  const datos = db.datosParaAvisos(lista.map((c) => c.telefono)), ahora = new Date();
+  ok(res, { invalidos, lista: lista.map((c) => {
+    const d = datos.get(c.telefono), ct = d ? db.contacto(c.telefono) : null;
+    return { telefono: c.telefono, nombre: (ct && ct.nombre) || c.nombre || '', apellido: (ct && ct.apellido) || c.apellido || '', etapa: d ? d.etapa : '', avisos: TANDAS.avisosDe(d, ahora) };
+  }) });
+});
 app.post('/api/envios', (req, res) => {
   const b = req.body || {};
   const versiones = (Array.isArray(b.versiones) ? b.versiones : [b.texto]).map((v) => String(v || '').trim()).filter(Boolean).slice(0, 5);
@@ -1048,16 +1064,12 @@ app.post('/api/envios', (req, res) => {
   if (!versiones.length && !b.adjunto) return fail(res, 'Escribe el mensaje');
   b.texto = versiones[0] || '';
   const extra = { versiones: versiones.length > 1 ? versiones : null, adjunto: b.adjunto || null, segundo: String(b.segundo || '').trim(), noRepetir: !!b.noRepetir };
-  if (!req.esAdmin && !req.permisos.masivos && (b.segmento || (b.destinatarios || []).length > 5)) return fail(res, 'Tu usuario puede enviar a máximo 5 contactos a la vez y sin segmentos. Pídele permiso de envíos masivos al administrador.', 403);
-  const mapa = new Map(); let invalidos = 0;
-  for (const c of b.destinatarios || []) {
-    const tel = normPhone(c.telefono); if (!tel) { invalidos++; continue; }
-    db.guardarContacto({ ...c, telefono: tel, origen: c.origen || 'manual' });
-    mapa.set(tel, { ...c, telefono: tel });
-  }
-  if (b.segmento) for (const c of db.buscarContactos({ ...b.segmento, sinBajas: true })) if (!mapa.has(c.telefono)) mapa.set(c.telefono, { telefono: c.telefono, nombre: c.nombre });
-  const lista = [...mapa.values()];
+  if (sinPermisoMasivo(req, b)) return fail(res, MSJ_SIN_PERMISO, 403);
+  const { lista, invalidos } = TANDAS.unirDestinatarios({ ...b, excluir: Array.isArray(b.excluir) ? b.excluir : [] }, { normPhone, buscarContactos: db.buscarContactos });
   if (!lista.length) return fail(res, 'No hay destinatarios válidos');
+  // Los agregados a mano se guardan como contactos (solo los que quedaron en la lista)
+  const aMano = new Set((b.destinatarios || []).map((c) => normPhone(c.telefono)).filter(Boolean));
+  for (const c of lista) if (aMano.has(c.telefono)) db.guardarContacto({ ...c, origen: c.origen || 'manual' });
   if (b.cuando) {
     const fecha = new Date(b.cuando); if (isNaN(fecha)) return fail(res, 'Fecha inválida');
     const id = db.crearProgramado({ nombre: b.nombre || 'Envío programado', texto: b.texto, destinatarios: lista.map((c) => ({ ...c, _usuario: req.usuario.nombre })), fecha: fecha.toISOString(), secuencia: !!b.secuencia, extra });
@@ -1065,10 +1077,11 @@ app.post('/api/envios', (req, res) => {
     evento({ estado: 'programado', detalle: `"${b.nombre || 'Envío programado'}" para ${fecha.toLocaleString('es-CL')} (${lista.length} contactos)` });
     return ok(res, { programado: id, total: lista.length, invalidos });
   }
-  db.encolar(lista.map((c) => ({ telefono: c.telefono, texto: b.texto, tipo: 'masivo', datos: { contacto: c, secuencia: !!b.secuencia, noRepetir: !!b.noRepetir, usuario: req.usuario.nombre, versiones: extra.versiones, adjunto: extra.adjunto, segundo: extra.segundo } })));
+  const tanda = db.crearTanda({ nombre: b.nombre || TANDAS.nombrePorDefecto(b.texto, new Date()), usuario: req.usuario.nombre, tipo: 'masivo', total: lista.length });
+  db.encolar(lista.map((c) => ({ telefono: c.telefono, texto: b.texto, tipo: 'masivo', datos: { contacto: c, secuencia: !!b.secuencia, noRepetir: !!b.noRepetir, usuario: req.usuario.nombre, versiones: extra.versiones, adjunto: extra.adjunto, segundo: extra.segundo } })), tanda);
   act(req, lista.length > 1 ? 'Envió un mensaje masivo' : 'Envió un mensaje', lista.length > 1 ? `${lista.length} contactos` : nombreC(lista[0].telefono));
   evento({ estado: 'cola', detalle: `${lista.length} mensajes agregados a la cola` });
-  ok(res, { total: lista.length, invalidos });
+  ok(res, { total: lista.length, invalidos, tanda });
 });
 app.get('/api/programados', (req, res) => res.json({ programados: db.programados() }));
 app.get('/api/adjuntos/:id', (req, res) => { const a = db.adjunto(req.params.id); if (!a) return res.status(404).end(); res.type(a.mime); res.sendFile(path.join(ADJ, a.archivo)); });
