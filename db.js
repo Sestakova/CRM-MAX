@@ -346,6 +346,24 @@ async function openDb(dataDir) {
     siguienteEnCola: (sinSeguimientos = false) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND (tanda IS NULL OR tanda NOT IN (SELECT id FROM tandas WHERE pausada = 1 OR estado = 'cancelada')) ${sinSeguimientos ? "AND tipo NOT IN ('seguimiento1', 'seguimiento2')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, COALESCE(orden, id), id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
     // Reserva el mensaje justo antes de enviarlo: si alguien lo sacó entre medio, devuelve false
     marcarEnviando: (id) => { db.run("UPDATE cola SET estado = 'enviando' WHERE id = ? AND estado = 'pendiente'", [id]); const n = db.getRowsModified(); if (n) save(); return n > 0; },
+    // ---------- tandas
+    // Las de 2 contactos o más, con pendientes o creadas desde `desde`, de la más nueva a la más vieja
+    tandas: ({ desde }) => all(`SELECT t.*, COALESCE(SUM(c.estado = 'enviado'), 0) AS enviados, COALESCE(SUM(c.estado IN ('pendiente', 'enviando')), 0) AS pendientes,
+        COALESCE(SUM(c.estado IN ('omitido', 'sacado', 'cancelado')), 0) AS omitidos, COALESCE(SUM(c.estado = 'error'), 0) AS errores
+      FROM tandas t LEFT JOIN cola c ON c.tanda = t.id WHERE t.total >= 2 GROUP BY t.id HAVING pendientes > 0 OR t.creada >= ? ORDER BY t.id DESC`, [desde]),
+    tanda: (id) => get('SELECT * FROM tandas WHERE id = ?', [id]),
+    itemsDeTanda: (id) => all(`SELECT q.id, q.telefono, q.estado, q.detalle, q.procesado, q.orden, c.nombre, c.apellido, c.ultimo_entrante
+      FROM cola q LEFT JOIN contactos c ON c.telefono = q.telefono WHERE q.tanda = ? ORDER BY COALESCE(q.orden, q.id)`, [id]),
+    sacarDeTanda: (itemId, usuario) => { db.run("UPDATE cola SET estado = 'sacado', detalle = ?, procesado = ? WHERE id = ? AND estado = 'pendiente'", ['Sacado por ' + usuario, now(), itemId]); const n = db.getRowsModified(); if (n) save(); return n ? 'sacado' : 'ya_salio'; },
+    primeroEnTanda: (itemId) => run("UPDATE cola SET orden = (SELECT MIN(COALESCE(orden, id)) - 1 FROM cola WHERE tanda = (SELECT tanda FROM cola WHERE id = ?) AND estado = 'pendiente') WHERE id = ? AND estado = 'pendiente'", [itemId, itemId]),
+    pausarTanda: (id, pausada) => run('UPDATE tandas SET pausada = ? WHERE id = ?', [pausada ? 1 : 0, id]),
+    cancelarTanda: (id) => { db.run("UPDATE cola SET estado = 'cancelado', procesado = ? WHERE tanda = ? AND estado = 'pendiente'", [now(), id]); const n = db.getRowsModified(); run("UPDATE tandas SET estado = 'cancelada' WHERE id = ?", [id]); return n; },
+    quitarDeProgramado: (programadoId, telefono) => {
+      const p = get('SELECT destinatarios FROM programados WHERE id = ?', [programadoId]); if (!p) return 0;
+      const quedan = JSON.parse(p.destinatarios || '[]').filter((c) => c.telefono !== telefono);
+      run('UPDATE programados SET destinatarios = ? WHERE id = ?', [JSON.stringify(quedan), programadoId]);
+      return quedan.length;
+    },
     cerrarItem: (id, estado, detalle) => run('UPDATE cola SET estado = ?, detalle = ?, procesado = ? WHERE id = ?', [estado, detalle || null, now(), id]),
     pendientesCola: () => get("SELECT COUNT(*) AS n FROM cola WHERE estado = 'pendiente'").n,
     pendientesPorTipo: () => all("SELECT tipo, COUNT(*) AS n FROM cola WHERE estado = 'pendiente' GROUP BY tipo"),
