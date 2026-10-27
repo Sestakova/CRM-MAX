@@ -417,7 +417,7 @@ function pintarFicha(d) {
   if (!ch || !ch.telefono) { f.innerHTML = `<h2 class="fh">Ficha del lead</h2><div class="empty">${ch && ch.sinNumero ? 'WhatsApp no entregó el número de este chat.' : 'Cuando abras un chat en WhatsApp, aquí aparecen los datos del lead, su próxima acción y sus llamadas.'}</div>`; return; }
   const c = ch.contacto;
   const nom = nombreDe(c || { nombre: ch.nombreWa, telefono: ch.telefono });
-  const llam = (ch.llamadas || []).map((l) => `<div class="llam"><b>📞 Llamada ${esc(cuando(l.fecha))}</b><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-lre="${l.id}" data-f="${esc(l.fecha)}">Reagendar</button><button class="btn sm" data-lok="${l.id}">Hecha</button><button class="btn sm danger" data-lx="${l.id}">Cancelar</button></div></div>`).join('');
+  const llam = (ch.llamadas || []).map((l) => `<div class="llam"><b>📞 Llamada ${esc(cuando(l.fecha))}</b><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-lre="${l.id}" data-f="${esc(l.fecha)}" data-op="${esc(l.opciones || '')}">Reagendar</button><button class="btn sm" data-lok="${l.id}">Hecha</button><button class="btn sm danger" data-lx="${l.id}">Cancelar</button></div></div>`).join('');
   const recs = (ch.recordatorios || []).filter((r) => !r.llamada_id).map((r) => `<div class="rec ${new Date(r.fecha) <= new Date() ? 'venc' : ''}"><div class="grow"><b>${fechaLarga(r.fecha)}</b>${r.texto ? `<div class="small">${esc(r.texto)}</div>` : ''}</div><button class="btn sm" data-rok="${r.id}" title="Marcar como hecho">Hecho</button></div>`).join('');
   const px = proxTxt(c); const sinProx = c && c.sinProx;
   const bloqueProx = `<div class="proxbox ${sinProx ? 'sin' : ''}"><span class="lbl">Próxima acción</span><b>${px ? esc(px) : sinProx ? 'Sin próxima acción' : 'Nada agendado'}</b>${sinProx ? '<span class="small muted">Agenda algo para no perder este lead</span>' : ''}</div>
@@ -449,11 +449,11 @@ function pintarFicha(d) {
   $('fLlam').onclick = () => llamadaModal(ch.telefono, nom, null, recargar);
   $('fRec').onclick = () => recordatorioModal(ch.telefono, nom, recargar);
   f.querySelectorAll('[data-rok]').forEach((b) => (b.onclick = async () => { await POST('/api/recordatorios/' + b.dataset.rok + '/listo'); recargar(); }));
-  f.querySelectorAll('[data-lre]').forEach((b) => (b.onclick = () => llamadaModal(ch.telefono, nom, { id: b.dataset.lre, fecha: b.dataset.f }, recargar)));
+  f.querySelectorAll('[data-lre]').forEach((b) => (b.onclick = () => llamadaModal(ch.telefono, nom, { id: b.dataset.lre, fecha: b.dataset.f, opciones: b.dataset.op }, recargar)));
   f.querySelectorAll('[data-lok]').forEach((b) => (b.onclick = async () => { await POST('/api/llamadas/' + b.dataset.lok + '/hecha'); toast('Llamada marcada como hecha'); recargar(); }));
   f.querySelectorAll('[data-lx]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Cancelar esta llamada? El recordatorio al cliente ya no saldrá.')) return; await POST('/api/llamadas/' + b.dataset.lx + '/cancelar'); toast('Llamada cancelada'); recargar(); }));
 }
-// Agendar (o reagendar) una llamada en 2 clics: eliges la hora y lo demás pasa solo
+// Agendar (o reagendar) una llamada: eliges la hora y qué se envía. Lo marcado queda para la próxima
 function llamadaModal(tel, nombre, llamada, listo) {
   const H = (CFG && CFG.llamadas && CFG.llamadas.horas) || ['10:00', '16:00'];
   const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -466,18 +466,24 @@ function llamadaModal(tel, nombre, llamada, listo) {
   if (ops.length < 4) ops.push(['Pasado mañana ' + H[0], en(2, H[0])]);
   const ops4 = ops.slice(0, 3);
   const cfgL = (CFG && CFG.llamadas) || {};
-  const min = parseInt(cfgL.recordatorio?.minutos) || 60;
-  const recTxt = min >= 1440 ? 'el día anterior' : min >= 60 ? `${min / 60 === 1 ? '1 hora' : min / 60 + ' horas'} antes` : `${min} minutos antes`;
+  // Parte como quedó la última vez (o como se agendó esta llamada, al reagendar)
+  let op = null; try { op = llamada && llamada.opciones ? JSON.parse(llamada.opciones) : null; } catch {}
+  op = op || { confirmacion: cfgL.confirmacion?.on !== false, recordatorio: cfgL.recordatorio?.on !== false, minutos: cfgL.recordatorio?.minutos ?? 60, aviso: cfgL.aviso?.on !== false, avisoMin: parseInt(cfgL.avisoMin ?? 10) || 0 };
+  const TIEMPOS = [[15, '15 min antes'], [60, '1 hora antes'], [120, '2 horas antes'], ['dia_antes', 'El día anterior (18:00)']];
+  if (!TIEMPOS.some(([m]) => String(m) === String(op.minutos))) TIEMPOS.unshift([op.minutos, (parseInt(op.minutos) || 60) + ' min antes']);
+  const VARS = '<span class="small muted">{nombre}, {dia} y {hora} se cambian solos.</span>';
   let elegido = llamada ? new Date(llamada.fecha) : ops4[1] ? ops4[1][1] : ops4[0][1];
   modal(`<span class="eyebrow">${llamada ? 'Reagendar llamada' : 'Agendar llamada'}</span><h3>Llamar a ${esc(nombre || fmtTel(tel))}</h3>
     <span class="small muted">¿Cuándo?</span>
     <div class="grid g2" style="gap:10px" id="lOps">${ops4.map(([t], i) => `<button type="button" class="chip" style="height:54px;font-size:15px" data-i="${i}">${t}</button>`).join('')}<button type="button" class="chip" style="height:54px;font-size:15px" data-i="otro">Otro día y hora…</button></div>
     <label class="f" id="lOtroW" hidden>Fecha y hora<input type="datetime-local" id="lF"></label>
-    <div class="proxbox" style="gap:8px;font-size:14px"><b>Esto pasa solo:</b>
-      ${cfgL.confirmacion?.on !== false ? `<div style="display:flex;gap:10px">${CHECK}<span>El cliente recibe la confirmación por WhatsApp</span></div>` : ''}
-      ${cfgL.recordatorio?.on !== false ? `<div style="display:flex;gap:10px">${CHECK}<span>Le llega un recordatorio ${recTxt}</span></div>` : ''}
-      <div style="display:flex;gap:10px">${CHECK}<span>A ti te avisa Windows ${parseInt(cfgL.avisoMin ?? 10) || 0} minutos antes, y queda en la campanita</span></div>
-      <span class="small muted">Los textos y tiempos se cambian una sola vez en Automáticos → Llamadas.</span></div>
+    <div class="proxbox" style="gap:10px;font-size:14px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="lCo" ${op.confirmacion ? 'checked' : ''}><span>Enviar confirmación al cliente</span></label><button type="button" class="lnk" data-ed="lCoT">Editar texto</button></div>
+      <div id="lCoT" hidden><textarea id="lCoTx" rows="3">${esc(cfgL.confirmacion?.texto || '')}</textarea>${VARS}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="lRe" ${op.recordatorio ? 'checked' : ''}><span>Enviar recordatorio al cliente</span></label><select id="lReM" style="width:auto">${TIEMPOS.map(([m, t]) => `<option value="${m}"${String(m) === String(op.minutos) ? ' selected' : ''}>${t}</option>`).join('')}</select><button type="button" class="lnk" data-ed="lReT">Editar texto</button></div>
+      <div id="lReT" hidden><textarea id="lReTx" rows="3">${esc(cfgL.recordatorio?.texto || '')}</textarea>${VARS}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="check" style="justify-content:flex-start;gap:10px"><input type="checkbox" id="lAv" ${op.aviso ? 'checked' : ''}><span>Avisarme en Windows</span></label><input type="number" id="lAvM" min="0" max="240" value="${parseInt(op.avisoMin) || 0}" style="width:76px"><span class="small muted">minutos antes</span></div>
+    </div>
     <span class="small" id="lErr" style="color:var(--bad)"></span>
     <div style="display:flex;gap:12px;justify-content:flex-end"><button class="btn" data-close>Cancelar</button><button class="btn pri" id="lOk">${llamada ? 'Reagendar' : 'Agendar'}</button></div>`, (box, close) => {
     const marcar = (k) => { box.querySelectorAll('#lOps [data-i]').forEach((x) => x.classList.toggle('on', x.dataset.i === String(k))); };
@@ -488,13 +494,21 @@ function llamadaModal(tel, nombre, llamada, listo) {
       if (x.dataset.i === 'otro') { $('lOtroW').hidden = false; if (!$('lF').value) $('lF').value = local(elegido); $('lF').focus(); }
       else { $('lOtroW').hidden = true; elegido = ops4[+x.dataset.i][1]; }
     }));
+    box.querySelectorAll('[data-ed]').forEach((x) => (x.onclick = () => { const w = $(x.dataset.ed); w.hidden = !w.hidden; if (!w.hidden) w.querySelector('textarea').focus(); }));
     $('lOk').onclick = async () => {
       const f = $('lOtroW').hidden ? elegido : new Date($('lF').value);
+      const m = $('lReM').value;
+      const opciones = { confirmacion: $('lCo').checked, recordatorio: $('lRe').checked, minutos: m === 'dia_antes' ? m : parseInt(m) || 60, aviso: $('lAv').checked, avisoMin: Math.max(0, parseInt($('lAvM').value) || 0) };
+      const textos = {};
+      if ($('lCoTx').value.trim() && $('lCoTx').value !== (cfgL.confirmacion?.texto || '')) textos.confirmacion = $('lCoTx').value;
+      if ($('lReTx').value.trim() && $('lReTx').value !== (cfgL.recordatorio?.texto || '')) textos.recordatorio = $('lReTx').value;
       if (isNaN(f) || f < new Date(Date.now() - 60000)) return ($('lErr').textContent = 'Elige una fecha y hora futura');
       $('lOk').disabled = true;
       try {
-        if (llamada) await POST('/api/llamadas/' + llamada.id + '/reagendar', { fecha: f.toISOString() });
-        else await POST('/api/llamadas', { telefono: tel, fecha: f.toISOString() });
+        if (llamada) await POST('/api/llamadas/' + llamada.id + '/reagendar', { fecha: f.toISOString(), opciones, textos });
+        else await POST('/api/llamadas', { telefono: tel, fecha: f.toISOString(), opciones, textos });
+        // Queda como la elección para la próxima llamada
+        if (CFG) CFG.llamadas = { ...cfgL, confirmacion: { ...cfgL.confirmacion, on: opciones.confirmacion, texto: textos.confirmacion || cfgL.confirmacion?.texto }, recordatorio: { ...cfgL.recordatorio, on: opciones.recordatorio, minutos: opciones.minutos, texto: textos.recordatorio || cfgL.recordatorio?.texto }, aviso: { on: opciones.aviso }, avisoMin: opciones.avisoMin };
         close(); toast(`Llamada ${llamada ? 'reagendada' : 'agendada'}: ${fechaLarga(f.toISOString())}`); listo && listo(); if (current === 'hoy') loadHoy();
       } catch (e) { $('lErr').textContent = e.message; $('lOk').disabled = false; }
     };

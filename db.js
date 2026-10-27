@@ -83,7 +83,8 @@ const DEFAULTS = {
     horas: ['10:00', '16:00'],
     confirmacion: { on: true, texto: 'Hola {nombre} 👋 Quedamos en conversar {dia} a las {hora}. ¡Te llamo!' },
     recordatorio: { on: true, minutos: 60, texto: 'Hola {nombre}, te recuerdo que hablamos {dia} a las {hora} 📞 ¿Sigue bien para ti?' },
-    avisoMin: 10
+    avisoMin: 10,
+    aviso: { on: true }
   },
   resumen: { activo: true, hora: '08:30' },
   postventa: {
@@ -129,6 +130,7 @@ async function openDb(dataDir) {
   ensure('cola', 'tanda', 'INTEGER');            // a qué tanda de envío pertenece
   ensure('cola', 'orden', 'INTEGER');            // orden dentro de la tanda (se cambia arrastrando)
   ensure('cola', 'sin_seguimiento', 'INTEGER DEFAULT 0');   // pidieron no iniciar seguimientos tras este envío
+  ensure('llamadas', 'opciones', 'TEXT');        // lo marcado al agendar: confirmación, recordatorio y aviso (JSON)
   ensure('tandas', 'modo', "TEXT DEFAULT 'despues'");      // despues: espera a los grupos anteriores · corriendo: sale a la vez
   // Si el programa se cerró a mitad de un envío no se reintenta: no se sabe si salió
   db.run("UPDATE cola SET estado = 'error', detalle = 'El programa se cerró mientras se enviaba: revisa en tu celular si salió', procesado = ? WHERE estado = 'enviando'", [new Date().toISOString()]);
@@ -419,7 +421,7 @@ async function openDb(dataDir) {
     cancelarAgendadosDe: (tel, etiquetas) => run(`UPDATE agendados SET estado = 'cancelado', procesado = ? WHERE estado = 'pendiente' AND telefono = ? AND etiqueta IN (${etiquetas.map(() => '?').join(',')})`, [now(), tel, ...etiquetas]),
     agendadosHoy: () => { const f = new Date(); f.setHours(23, 59, 59, 999); return get("SELECT COUNT(*) AS n FROM agendados WHERE estado = 'pendiente' AND fecha <= ?", [f.toISOString()]).n; },
     // ---------- llamadas agendadas
-    crearLlamada: (tel, fecha) => { run('INSERT INTO llamadas (telefono, fecha, creado) VALUES (?, ?, ?)', [tel, fecha, now()]); return lastId(); },
+    crearLlamada: (tel, fecha, opciones = null) => { run('INSERT INTO llamadas (telefono, fecha, creado, opciones) VALUES (?, ?, ?, ?)', [tel, fecha, now(), opciones ? JSON.stringify(opciones) : null]); return lastId(); },
     llamada: (id) => get('SELECT * FROM llamadas WHERE id = ?', [id]),
     editarLlamada: (id, c) => { const k = Object.keys(c); run(`UPDATE llamadas SET ${k.map((x) => x + ' = ?').join(', ')} WHERE id = ?`, [...k.map((x) => c[x]), id]); },
     llamadasDe: (tel) => all("SELECT * FROM llamadas WHERE telefono = ? AND estado = 'pendiente' ORDER BY fecha", [tel]),

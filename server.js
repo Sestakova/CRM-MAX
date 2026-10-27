@@ -476,6 +476,7 @@ async function startWhatsApp() {
 // ---------- Cola de envío (masivos, programados y seguimientos) ----------
 const cola = { carriles: {}, espera: null };   // carriles: { auto | t<id>: { nextAt, enviadosSesion } }
 const CARRILES = require('./carriles');
+const LLAMADAS = require('./llamadas');
 const modoDe = (m) => (m === 'corriendo' ? 'corriendo' : 'despues');
 // El próximo envío con pausa pendiente, entre todos los carriles (para «Próximo en …»)
 const proximoEnvio = () => { const ahora = Date.now(), f = Object.values(cola.carriles).map((c) => c.nextAt || 0).filter((t) => t > ahora); return f.length ? Math.min(...f) : null; };
@@ -640,14 +641,14 @@ const destinoDe = (tel) => { const c = db.contacto(tel) || {}; return [{ telefon
 function programarLlamada(id) {
   const l = db.llamada(id); if (!l) return;
   const cfg = db.getConfig('llamadas'); const f = new Date(l.fecha); const dest = destinoDe(l.telefono);
+  // Lo que se marcó al agendar; las llamadas de antes de la 4.1.0 usan la configuración. Los textos siempre vienen de la configuración
+  let op = null; try { op = l.opciones ? JSON.parse(l.opciones) : null; } catch {}
+  const p = LLAMADAS.plan(f, op ? LLAMADAS.limpiar(op) : LLAMADAS.desdeConfig(cfg), new Date());
   const prep = (t, ref) => String(t || '').replace(/\{dia\}/gi, diaTxt(f, ref)).replace(/\{hora\}/gi, horaTxt(f)).trim();
   const c = { conf_id: null, rec_id: null, recordatorio_id: null };
-  if (cfg.confirmacion?.on && prep(cfg.confirmacion.texto)) c.conf_id = db.crearAgendado({ texto: prep(cfg.confirmacion.texto, new Date()), destinatarios: dest, fecha: new Date().toISOString(), etiqueta: 'llamada', telefono: l.telefono });
-  const min = Math.max(1, parseInt(cfg.recordatorio?.minutos) || 60);
-  const fr = new Date(f.getTime() - min * 60000);
-  if (cfg.recordatorio?.on && prep(cfg.recordatorio.texto) && fr.getTime() > Date.now() + 5 * 60000) c.rec_id = db.crearAgendado({ texto: prep(cfg.recordatorio.texto, fr), destinatarios: dest, fecha: fr.toISOString(), etiqueta: 'llamada_rec', telefono: l.telefono });
-  const aviso = new Date(f.getTime() - Math.max(0, parseInt(cfg.avisoMin ?? 10) || 0) * 60000);
-  c.recordatorio_id = db.crearRecordatorio(l.telefono, aviso.toISOString(), '📞 Llamada a las ' + horaTxt(f), id);
+  if (p.confirmacion && prep(cfg.confirmacion?.texto)) c.conf_id = db.crearAgendado({ texto: prep(cfg.confirmacion.texto, new Date()), destinatarios: dest, fecha: new Date().toISOString(), etiqueta: 'llamada', telefono: l.telefono });
+  if (p.recordatorio && prep(cfg.recordatorio?.texto)) c.rec_id = db.crearAgendado({ texto: prep(cfg.recordatorio.texto, p.recordatorio), destinatarios: dest, fecha: p.recordatorio.toISOString(), etiqueta: 'llamada_rec', telefono: l.telefono });
+  if (p.aviso) c.recordatorio_id = db.crearRecordatorio(l.telefono, p.aviso.toISOString(), '📞 Llamada a las ' + horaTxt(f), id);
   db.editarLlamada(id, c);
   try { revisarAgendados(); } catch {}
 }
@@ -918,11 +919,24 @@ app.get('/api/buscar', (req, res) => {
 });
 // Llamadas agendadas
 const leerTel = (t) => normPhone(t) || (esLid(t) ? t : null);
+// Lo marcado y los textos editados quedan en la configuración para la próxima llamada
+function recordarEleccion(op, textos) {
+  const cfg = db.getConfig('llamadas');
+  if (op) {
+    cfg.confirmacion = { ...cfg.confirmacion, on: op.confirmacion };
+    cfg.recordatorio = { ...cfg.recordatorio, on: op.recordatorio, minutos: op.minutos };
+    cfg.aviso = { on: op.aviso }; cfg.avisoMin = op.avisoMin;
+  }
+  for (const k of ['confirmacion', 'recordatorio']) if (textos && typeof textos[k] === 'string' && textos[k].trim()) cfg[k] = { ...cfg[k], texto: textos[k].slice(0, 1000) };
+  db.setConfig('llamadas', cfg);
+}
 app.post('/api/llamadas', (req, res) => {
   const b = req.body || {}; const tel = leerTel(b.telefono); const f = new Date(b.fecha);
   if (!tel) return fail(res, 'Falta el contacto');
   if (isNaN(f) || f.getTime() < Date.now() - 60000) return fail(res, 'Elige una fecha y hora futura');
-  const id = db.crearLlamada(tel, f.toISOString()); programarLlamada(id);
+  const op = b.opciones ? LLAMADAS.limpiar(b.opciones) : null;
+  recordarEleccion(op, b.textos);
+  const id = db.crearLlamada(tel, f.toISOString(), op); programarLlamada(id);
   act(req, 'Agendó una llamada', `${nombreC(tel)} · ${f.toLocaleString('es-CL')}`);
   ok(res, { id });
 });
@@ -930,7 +944,9 @@ app.post('/api/llamadas/:id/reagendar', (req, res) => {
   const l = db.llamada(parseInt(req.params.id)); const f = new Date((req.body || {}).fecha);
   if (!l || l.estado !== 'pendiente') return fail(res, 'Esa llamada ya no está pendiente');
   if (isNaN(f) || f.getTime() < Date.now() - 60000) return fail(res, 'Elige una fecha y hora futura');
-  desprogramarLlamada(l); db.editarLlamada(l.id, { fecha: f.toISOString() }); programarLlamada(l.id);
+  const op = req.body.opciones ? LLAMADAS.limpiar(req.body.opciones) : null;   // sin opciones, se mantienen las que tenía
+  recordarEleccion(op, req.body.textos);
+  desprogramarLlamada(l); db.editarLlamada(l.id, op ? { fecha: f.toISOString(), opciones: JSON.stringify(op) } : { fecha: f.toISOString() }); programarLlamada(l.id);
   act(req, 'Reagendó una llamada', `${nombreC(l.telefono)} · ${f.toLocaleString('es-CL')}`);
   ok(res);
 });
