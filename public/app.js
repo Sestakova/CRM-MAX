@@ -231,7 +231,7 @@ async function poll() {
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
-  '4.2.1': ['Arreglo: el Cotizador ya deja iniciar sesión y la recuerda, igual que WhatsApp'],
+  '4.2.1': ['Arreglo: el Cotizador ya deja iniciar sesión y la recuerda, igual que WhatsApp', 'Tu cotizador publicado («Ver mi sitio») se abre dentro del CRM, sin saltar al navegador'],
   '4.2.0': ['Nueva sección Cotizador: tu cuenta de miscotizadores dentro del CRM (atajo 7)'],
   '4.1.0': ['Cada envío masivo es un grupo dentro de la Cola de envío: tócalo para ver a quién le falta, a quién le llegó y a quién sacaste', 'Ordena a las personas de un grupo arrastrándolas desde ≡, o sácalas con «No enviar»', 'Al lanzar otro envío eliges «Después» (espera a los que están saliendo) o «Corriendo» (sale a la vez, con su propio ritmo)', 'Antes de enviar ves la lista completa y puedes desmarcar a quien no corresponda', 'Agendar llamada: eliges en cada llamada si va la confirmación, el recordatorio y el aviso de Windows, y puedes editar los textos ahí mismo', 'Automáticos más simple: se quitan Llamadas, Postventa y referidos, Resumen diario y Estado de la secuencia', 'Barra superior verde, con el color del CRM'],
   '4.0.1': ['Envíos: nuevo botón "Elegir de WhatsApp" para elegir uno o varios contactos de tus chats recientes o de los contactos guardados en tu celular', 'Busca por nombre o número, marca varios a la vez o todos los de la lista', 'Los que pidieron BAJA no se pueden elegir y los que ya están en la lista aparecen marcados'],

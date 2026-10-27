@@ -189,7 +189,8 @@ app.whenReady().then(async () => {
   });
   // Cotizador: miscotizadores en su propia vista y con su sesión guardada (incrustada en la página no podía iniciar sesión)
   const COTIZADOR = 'https://panel.miscotizadores.cl/dashboard';
-  const esCotizador = (u) => /^https:\/\/([a-z0-9-]+\.)*miscotizadores\.cl(\/|$)/i.test(u);
+  // El panel (miscotizadores.cl) y los cotizadores que publica (cotizaen.cl, p. ej. «Ver mi sitio») se abren ahí mismo
+  const esCotizador = (u) => /^https:\/\/([a-z0-9-]+\.)*(miscotizadores|cotizaen)\.cl(\/|$)/i.test(u);
   session.fromPartition('persist:cotizador').setPermissionRequestHandler((wc, permiso, cb) => cb(['clipboard-read', 'clipboard-sanitized-write'].includes(permiso)));
   const cotView = new WebContentsView({ webPreferences: { partition: 'persist:cotizador', spellcheck: true } });
   cotView.setVisible(false);
