@@ -1102,6 +1102,57 @@ app.put('/api/agendados/:id', (req, res) => { try { db.editarAgendado(parseInt(r
 app.delete('/api/agendados/:id', (req, res) => { if (!db.cancelarAgendado(parseInt(req.params.id))) return fail(res, 'Ese mensaje ya salió o ya estaba cancelado'); ok(res); });
 app.patch('/api/programados/:id', (req, res) => { db.editarProgramado(parseInt(req.params.id), req.body || {}); act(req, 'Editó un envío programado', req.body.nombre || ''); ok(res); });
 app.delete('/api/programados/:id', (req, res) => { db.estadoProgramado(parseInt(req.params.id), 'cancelado'); act(req, 'Canceló un envío programado'); ok(res); });
+// Tandas: ver quién falta, sacar, pasar primero, pausar o cancelar una sola tanda
+const quienSoy = (req) => ({ esAdmin: !!req.esAdmin, nombre: req.usuario && req.usuario.nombre, masivos: !!(req.permisos && req.permisos.masivos) });
+const SIN_PERMISO_TANDA = 'Solo quien lanzó la tanda o el administrador puede cambiarla';
+const tandaDeItem = (itemId) => { const q = db.get('SELECT telefono, tanda FROM cola WHERE id = ?', [itemId]); return q && q.tanda ? { q, t: db.tanda(q.tanda) } : null; };
+const programadoConLista = (id) => { const p = db.get("SELECT id, nombre, destinatarios FROM programados WHERE id = ? AND estado = 'pendiente'", [id]); if (!p) return null; const d = JSON.parse(p.destinatarios || '[]'); return { ...p, destinatarios: d, usuario: (d[0] && d[0]._usuario) || null }; };
+app.get('/api/tandas', (req, res) => {
+  const yo = quienSoy(req);
+  const tandas = db.tandas({ desde: new Date(Date.now() - 30 * 86400000).toISOString() }).map((t) => ({ ...t, estadoTexto: TANDAS.estadoTanda(t), puedeManejar: TANDAS.puedeManejar(t, yo) }));
+  const programados = db.programados().map((p) => { const c = programadoConLista(p.id); return { ...p, puedeManejar: TANDAS.puedeManejar({ usuario: c && c.usuario }, yo) }; });
+  res.json({ tandas, programados });
+});
+app.get('/api/tandas/:id', (req, res) => {
+  const t = db.tanda(parseInt(req.params.id)); if (!t) return fail(res, 'Esa tanda ya no existe', 404);
+  const ahora = new Date();
+  res.json({ tanda: { ...t, puedeManejar: TANDAS.puedeManejar(t, quienSoy(req)) }, items: db.itemsDeTanda(t.id).map((x) => ({ ...x, nombre: x.nombre || nombreC(x.telefono), escribio: x.estado === 'pendiente' || x.estado === 'enviando' ? TANDAS.escribioHace(x.ultimo_entrante, t.creada, ahora) : null })) });
+});
+app.post('/api/tandas/:id/pausa', (req, res) => {
+  const t = db.tanda(parseInt(req.params.id)); if (!t) return fail(res, 'Esa tanda ya no existe', 404);
+  if (!TANDAS.puedeManejar(t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
+  db.pausarTanda(t.id, !!req.body.pausada); act(req, req.body.pausada ? 'Pausó una tanda' : 'Reanudó una tanda', `"${t.nombre}"`); ok(res);
+});
+app.post('/api/tandas/:id/cancelar', (req, res) => {
+  const t = db.tanda(parseInt(req.params.id)); if (!t) return fail(res, 'Esa tanda ya no existe', 404);
+  if (!TANDAS.puedeManejar(t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
+  const n = db.cancelarTanda(t.id); act(req, 'Canceló lo que faltaba de una tanda', `"${t.nombre}" · ${n} mensajes`);
+  evento({ estado: 'cancelado', detalle: `"${t.nombre}": se cancelaron ${n} mensajes pendientes` }); ok(res, { cancelados: n });
+});
+app.post('/api/tandas/item/:itemId/sacar', (req, res) => {
+  const x = tandaDeItem(parseInt(req.params.itemId)); if (!x) return fail(res, 'Ese mensaje ya no está en una tanda', 404);
+  if (!TANDAS.puedeManejar(x.t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
+  const resultado = db.sacarDeTanda(parseInt(req.params.itemId), req.usuario.nombre);
+  if (resultado === 'sacado') {
+    if (req.body.seguimientos) db.detenerSecuencia(x.q.telefono, 'Sacado de una tanda');
+    act(req, 'Sacó a un contacto de una tanda', `"${x.t.nombre}" · ${nombreC(x.q.telefono)}`);
+  }
+  ok(res, { resultado });
+});
+app.post('/api/tandas/item/:itemId/primero', (req, res) => {
+  const x = tandaDeItem(parseInt(req.params.itemId)); if (!x) return fail(res, 'Ese mensaje ya no está en una tanda', 404);
+  if (!TANDAS.puedeManejar(x.t, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
+  db.primeroEnTanda(parseInt(req.params.itemId)); act(req, 'Pasó primero a un contacto de una tanda', `"${x.t.nombre}" · ${nombreC(x.q.telefono)}`); ok(res);
+});
+app.get('/api/programados/:id/lista', (req, res) => {
+  const p = programadoConLista(parseInt(req.params.id)); if (!p) return fail(res, 'Ese envío programado ya salió o fue cancelado', 404);
+  res.json({ nombre: p.nombre, puedeManejar: TANDAS.puedeManejar(p, quienSoy(req)), items: p.destinatarios.map((c) => ({ telefono: c.telefono, nombre: nombreC(c.telefono).replace(/^\+\d+$/, c.nombre || '') || c.nombre || '' })) });
+});
+app.post('/api/programados/:id/quitar', (req, res) => {
+  const p = programadoConLista(parseInt(req.params.id)); if (!p) return fail(res, 'Ese envío programado ya salió o fue cancelado', 404);
+  if (!TANDAS.puedeManejar(p, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
+  const quedan = db.quitarDeProgramado(p.id, req.body.telefono); act(req, 'Sacó a un contacto de un envío programado', `"${p.nombre}" · ${nombreC(req.body.telefono)}`); ok(res, { quedan });
+});
 app.post('/api/cola/pausa', (req, res) => { db.setConfig('cola_pausada', !!req.body.pausada); act(req, req.body.pausada ? 'Pausó los envíos' : 'Reanudó los envíos'); ok(res); });
 app.post('/api/cola/cancelar', soloAdmin, (req, res) => { db.cancelarCola(['masivo', 'programado']); evento({ estado: 'cancelado', detalle: 'Se cancelaron los envíos pendientes' }); ok(res); });
 

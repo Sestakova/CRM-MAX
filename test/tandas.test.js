@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { baseNueva, normPhone } = require('./ayuda');
-const { unirDestinatarios, avisosDe, nombrePorDefecto, escribioHace, estadoTanda } = require('../tandas');
+const { unirDestinatarios, avisosDe, nombrePorDefecto, escribioHace, estadoTanda, puedeManejar } = require('../tandas');
 
 test('el mismo teléfono escrito distinto cuenta una vez y se excluye igual', () => {
   const r = unirDestinatarios(
@@ -68,4 +68,12 @@ test('datosParaAvisos trae etapa, seguimiento y último masivo', async () => {
   assert.equal(m.get('56911111111').etapa, 'Ingresado');
   assert.ok(m.get('56911111111').ultimoMasivo);
   assert.equal(m.get('56922222222'), undefined);
+});
+
+test('puedeManejar', () => {
+  const t = { usuario: 'Ana' };
+  assert.equal(puedeManejar(t, { esAdmin: true, nombre: 'Jesús' }), true);
+  assert.equal(puedeManejar(t, { esAdmin: false, nombre: 'Ana', masivos: true }), true);
+  assert.equal(puedeManejar(t, { esAdmin: false, nombre: 'Luis', masivos: true }), false);
+  assert.equal(puedeManejar(t, { esAdmin: false, nombre: 'Ana', masivos: false }), false);
 });

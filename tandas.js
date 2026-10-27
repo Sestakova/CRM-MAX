@@ -50,4 +50,7 @@ function estadoTanda({ estado, pausada, pendientes }) {
   return pausada ? 'En pausa' : 'Enviando';
 }
 
-module.exports = { unirDestinatarios, avisosDe, nombrePorDefecto, escribioHace, estadoTanda };
+// Cada usuario con permiso de masivos maneja sus tandas; el administrador, todas
+const puedeManejar = (tanda, { esAdmin, nombre, masivos }) => !!(esAdmin || (masivos && tanda.usuario === nombre));
+
+module.exports = { unirDestinatarios, avisosDe, nombrePorDefecto, escribioHace, estadoTanda, puedeManejar };
