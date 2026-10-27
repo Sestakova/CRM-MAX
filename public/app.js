@@ -76,7 +76,8 @@ const SECS = [
   { id: 'pipeline', label: 'Pipeline', d: 'M4 4h4v16H4z M10 4h4v11h-4z M16 4h4v7h-4z', desc: 'Arrastra cada lead a su etapa, de Nuevo a Ingresado · Atajo 3' },
   { id: 'envios', label: 'Envíos', d: 'M3 11l18-7-7 18-3-8z', desc: 'Manda mensajes a muchos contactos a la vez · Atajo 4' },
   { id: 'leads', label: 'Leads de Meta', d: 'M4 4h16v11h-4l-2 3h-4l-2-3H4z', desc: 'Los que llenan tus formularios de Facebook e Instagram · Atajo 5' },
-  { id: 'auto', label: 'Automáticos', d: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7v5l3 2', desc: 'Mensajes agendados, seguimientos y respuesta fuera de horario · Atajo 6' }
+  { id: 'auto', label: 'Automáticos', d: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7v5l3 2', desc: 'Mensajes agendados, seguimientos y respuesta fuera de horario · Atajo 6' },
+  { id: 'cotizador', label: 'Cotizador', d: 'M6 3h12v18H6z M9 7h6 M9 11h1 M12 11h1 M15 11h0 M9 15h1 M12 15h1 M15 15h0 M9 18h6', desc: 'Cotiza en miscotizadores sin salir del CRM · Atajo 7' }
 ];
 const VIEWS = [
   { id: 'hoy', label: 'Tu día', sub: () => new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }) },
@@ -85,11 +86,12 @@ const VIEWS = [
   { id: 'pipeline', label: 'Pipeline', sub: () => 'Arrastra cada lead a su etapa' },
   { id: 'envios', label: 'Envíos', sub: () => 'Agrega contactos a mano o importa un Excel · envía ahora o programa' },
   { id: 'auto', label: 'Automáticos', sub: () => 'Mensajes agendados, seguimientos y respuesta fuera de horario' },
+  { id: 'cotizador', label: 'Cotizador', sub: () => 'Tu cuenta de miscotizadores dentro del CRM' },
   { id: 'metricas', label: 'Métricas', sub: () => 'Qué mensajes funcionan, a qué hora te responden y dónde se pierden los leads' },
   { id: 'config', label: 'Configuración', sub: () => 'Conexión, reglas de envío, avisos, ayudas y seguridad' }
 ];
 let current = 'inicio';
-const SAT_DE = { hoy: 'inicio', chats: 'chats', pipeline: 'pipeline', envios: 'envios', leads: 'leads', auto: 'auto' };
+const SAT_DE = { hoy: 'inicio', chats: 'chats', pipeline: 'pipeline', envios: 'envios', leads: 'leads', auto: 'auto', cotizador: 'cotizador' };
 function renderSats() {
   $('sats').innerHTML = SECS.map((x) => `<button type="button" class="sat" data-sec="${x.id}" data-go="${x.id === 'inicio' ? 'inicio' : x.id}" aria-label="${x.label}">
     <span class="desc">${x.desc}</span>
@@ -108,7 +110,8 @@ function layout() {
     const cs = Math.round(Math.max(150, Math.min(300, H * 0.30, W * 0.22)));
     const ss = Math.round(Math.max(64, Math.min(128, H * 0.13)));
     const rx = Math.min(W * 0.32, 540), ry = Math.min(H * 0.36, 340);
-    const pts = [-90, -18, 54, 126, 198].map((a) => [cx + rx * Math.cos(a * Math.PI / 180), cy + ry * Math.sin(a * Math.PI / 180)]);
+    const n = sats.length - 1;   // los círculos, repartidos parejo alrededor del centro
+    const pts = Array.from({ length: n }, (_, i) => -90 + (360 / n) * i).map((a) => [cx + rx * Math.cos(a * Math.PI / 180), cy + ry * Math.sin(a * Math.PI / 180)]);
     const c = $('centro'); Object.assign(c.style, { left: cx - cs / 2 + 'px', top: cy - cs / 2 + 'px', width: cs + 'px', height: cs + 'px' });
     sats.forEach((el, i) => {
       el.classList.remove('on'); el.classList.toggle('oculto', i === 0);
@@ -162,7 +165,7 @@ function go(id) {
   $('title').textContent = v.label; $('subtitle').textContent = v.sub();
   $('headActions').innerHTML = '';
   $('caja').scrollTop = 0;
-  ({ hoy: loadHoy, leads: loadLeads, chats: loadChats, pipeline: loadPipeline, envios: loadEnvios, auto: loadAuto, metricas: loadMetricas, config: loadConfig }[id] || (() => {}))();
+  ({ hoy: loadHoy, leads: loadLeads, chats: loadChats, pipeline: loadPipeline, envios: loadEnvios, auto: loadAuto, cotizador: loadCotizador, metricas: loadMetricas, config: loadConfig }[id] || (() => {}))();
 }
 // Datos de los círculos del Inicio
 let HUB = null, leadsVistos = 0, mostrarConsejo = false;
@@ -225,6 +228,7 @@ async function poll() {
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
+  '4.2.0': ['Nueva sección Cotizador: tu cuenta de miscotizadores dentro del CRM (atajo 7)'],
   '4.1.0': ['Cada envío masivo es un grupo dentro de la Cola de envío: tócalo para ver a quién le falta, a quién le llegó y a quién sacaste', 'Ordena a las personas de un grupo arrastrándolas desde ≡, o sácalas con «No enviar»', 'Al lanzar otro envío eliges «Después» (espera a los que están saliendo) o «Corriendo» (sale a la vez, con su propio ritmo)', 'Antes de enviar ves la lista completa y puedes desmarcar a quien no corresponda', 'Agendar llamada: eliges en cada llamada si va la confirmación, el recordatorio y el aviso de Windows, y puedes editar los textos ahí mismo', 'Automáticos más simple: se quitan Llamadas, Postventa y referidos, Resumen diario y Estado de la secuencia', 'Barra superior verde, con el color del CRM'],
   '4.0.1': ['Envíos: nuevo botón "Elegir de WhatsApp" para elegir uno o varios contactos de tus chats recientes o de los contactos guardados en tu celular', 'Busca por nombre o número, marca varios a la vez o todos los de la lista', 'Los que pidieron BAJA no se pueden elegir y los que ya están en la lista aparecen marcados'],
   '4.0.0': ['CRM MAX ahora se llama CRM HERMES: logo, colores y diseño nuevos', 'Inicio con hilos: la sección que usas pasa al centro y los círculos bajan a una barra', 'Agendar llamada en 2 clics: confirmación y recordatorio al cliente, y aviso para ti', 'Próxima acción en cada lead y aviso de los que conversan sin una', 'Leads estancados en naranjo cuando llevan días en la misma etapa', 'Postventa automática al pasar a Ingresado: bienvenida, control al mes y petición de referidos', 'Resumen diario a tu WhatsApp cada mañana', 'Métricas: mejor hora para enviar y referidos', 'Contactos repetidos: se detectan y se unen', 'Buscar con Ctrl K, campanita de recordatorios, atajos 1 a 6 y Esc', 'Las próximas actualizaciones se instalan solas, sin ventanas'],
@@ -998,6 +1002,17 @@ function renderCola() {
 $('qPause').onclick = async () => { await POST('/api/cola/pausa', { pausada: !EST.cola.pausada }); poll(); };
 $('qCancel').onclick = async () => { if (confirm('¿Cancelar todos los envíos pendientes? Los seguimientos automáticos se mantienen.')) { await POST('/api/cola/cancelar'); poll(); } };
 
+// ---------------- Cotizador ----------------
+// La página de miscotizadores, incrustada. Se crea una sola vez: al cambiar de sección y volver, sigue donde quedó
+const COTIZADOR = 'https://panel.miscotizadores.cl/dashboard';
+function loadCotizador() {
+  $('headActions').innerHTML = '<button class="btn" id="cotRec">Recargar</button><button class="btn" id="cotNav">Abrir en el navegador</button>';
+  let f = $('cotizCaja').querySelector('iframe');
+  if (!f) { f = document.createElement('iframe'); f.title = 'Cotizador'; f.allow = 'clipboard-read; clipboard-write'; f.src = COTIZADOR; $('cotizCaja').appendChild(f); }
+  $('cotRec').onclick = () => { f.src = COTIZADOR; };
+  $('cotNav').onclick = () => window.open(COTIZADOR, '_blank');
+}
+
 // ---------------- Automáticos ----------------
 async function loadAuto() {
   CFG = await GET('/api/config');
@@ -1489,7 +1504,7 @@ $('bqIn').onkeydown = (e) => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); bqSel = Math.max(0, bqSel - 1); pintarBusqueda(); }
   else if (e.key === 'Enter' && bqLista[bqSel]) { e.preventDefault(); const t = bqLista[bqSel].telefono; cerrarPops(); openChat(t); }
 };
-const ATAJOS = { 1: 'inicio', 2: 'chats', 3: 'pipeline', 4: 'envios', 5: 'leads', 6: 'auto' };
+const ATAJOS = { 1: 'inicio', 2: 'chats', 3: 'pipeline', 4: 'envios', 5: 'leads', 6: 'auto', 7: 'cotizador' };
 document.addEventListener('keydown', (e) => {
   if (!YO || document.body.classList.contains('locked')) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); abrirBuscar(); return; }
