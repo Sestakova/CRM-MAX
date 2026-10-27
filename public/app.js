@@ -218,7 +218,7 @@ async function poll() {
     const cb = s.avisos?.campana || 0; $('campBadge').hidden = !cb; $('campBadge').textContent = cb;
     pintarDatos();
     revisarActualizacion(s.actualizacion);
-    if (current === 'envios') { renderCola(); renderTandas(); if (verTanda.refrescar) verTanda.refrescar(); }
+    if (current === 'envios') { renderCola(); renderGrupos(); if (verTanda.refrescar) verTanda.refrescar(); }
     if (current === 'config') renderWaCard();
     if (!poll.novedades && s.version) { poll.novedades = true; novedades(s.version); }
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
@@ -672,7 +672,7 @@ async function loadEnvios() {
   $('eVars').querySelectorAll('[data-var]').forEach((b) => (b.onmousedown = (ev) => { ev.preventDefault(); insertarEn(txtActivo(), b.dataset.var); }));
   if (!$('eWhen').value) { const d2 = new Date(Date.now() + 86400000); d2.setHours(10, 0, 0, 0); $('eWhen').value = new Date(d2 - d2.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   if (!$('eVersiones').children.length) renderVersiones();
-  renderDest(); renderProgramados(); renderTandas(); renderCola(); contarSeg();
+  renderDest(); renderProgramados(); renderGrupos(); renderCola(); contarSeg();
 }
 function renderDest() {
   const max = 14;
@@ -798,18 +798,19 @@ async function enviar(programar) {
   catch (e) { $('eRes').textContent = e.message; return; }
   finally { boton.disabled = false; boton.textContent = txtBoton; }
   if (!vista.lista.length) return ($('eRes').textContent = 'No hay destinatarios válidos.');
-  const elegidos = await confirmarLista(vista.lista, { programar, cuando, detalle });
+  const grupos = await GET('/api/tandas').catch(() => ({ tandas: [] }));
+  const elegidos = await confirmarLista(vista.lista, { programar, cuando, detalle, hayGrupos: grupos.tandas.some((t) => t.pendientes > 0) });
   if (!elegidos) return;
   try {
-    const d = await POST('/api/envios', { destinatarios: dest, segmento, excluir: elegidos.excluir, incluir: elegidos.incluir, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null });
+    const d = await POST('/api/envios', { destinatarios: dest, segmento, excluir: elegidos.excluir, incluir: elegidos.incluir, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null, modo: elegidos.modo });
     $('eRes').textContent = (programar ? `Programado para ${fechaLarga(cuando)} (${d.total} contactos).` : `${d.total} mensajes en la cola. Puedes seguir trabajando mientras se envían.`) + (d.total < elegidos.incluir.length ? ` ${elegidos.incluir.length - d.total} quedaron fuera porque pidieron la baja mientras revisabas.` : '');
-    dest = []; renderDest(); renderProgramados(); renderTandas();
+    dest = []; renderDest(); renderProgramados(); renderGrupos();
   } catch (e) { $('eRes').textContent = e.message; }
 }
 // Ventana de confirmación con la lista completa: se puede desmarcar a quien no va.
-// Devuelve { excluir, incluir } (desmarcados y marcados), o null si se canceló.
+// Devuelve { excluir, incluir, modo } (desmarcados, marcados y Después/Corriendo), o null si se canceló.
 const MAX_FILAS = 200;
-function confirmarLista(todos, { programar, cuando, detalle }) {
+function confirmarLista(todos, { programar, cuando, detalle, hayGrupos }) {
   const lista = [...todos].sort((a, b) => (b.avisos.length > 0) - (a.avisos.length > 0));   // los que tienen aviso, arriba
   const auto = new Set(lista.filter((c) => c.avisos.some((a) => a.desmarcar)).map((c) => c.telefono));
   const fuera = new Set(auto);
@@ -821,6 +822,9 @@ function confirmarLista(todos, { programar, cuando, detalle }) {
     ${detalle ? `<p style="margin:0">Mensaje: ${detalle}.</p>` : ''}
     ${$('eSeq').checked ? '<p style="margin:0" class="muted">Quienes no respondan recibirán los seguimientos automáticos.</p>' : ''}
     <div class="small" id="clAuto"></div>
+    ${hayGrupos || programar ? `<div style="display:flex;flex-direction:column;gap:8px" id="clModo">${hayGrupos ? '<span class="small">Ya hay otro grupo en la cola de envío.</span>' : '<span class="small">Si a esa hora hay otro grupo en la cola:</span>'}
+      <label class="opc on"><input type="radio" name="clModo" value="despues" checked><span><b>Después</b><span class="small muted" style="display:block">Empieza cuando terminen los grupos que ya están en la cola.</span></span></label>
+      <label class="opc"><input type="radio" name="clModo" value="corriendo"><span><b>Corriendo</b><span class="small muted" style="display:block">Sale al mismo tiempo que los otros, con su propio ritmo.</span></span></label></div>` : ''}
     <div class="clbar"><input type="text" id="clQ" placeholder="Buscar por nombre o teléfono"><button class="lnk" id="clTodos">Marcar todos</button><button class="lnk" id="clNinguno">Desmarcar todos</button></div>
     <div class="clista" id="clLista"></div>
     <div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" id="cNo">Cancelar</button><button class="btn pri" id="cSi"></button></div>`, (b, close) => {
@@ -838,10 +842,11 @@ function confirmarLista(todos, { programar, cuando, detalle }) {
     };
     $('clLista').onchange = (e) => { const t = e.target.dataset.t; if (!t) return; if (e.target.checked) fuera.delete(t); else fuera.add(t); pintar(); };
     $('clQ').oninput = (e) => { filtro = e.target.value; pintar(); };
+    if ($('clModo')) $('clModo').onchange = () => $('clModo').querySelectorAll('.opc').forEach((o) => o.classList.toggle('on', o.querySelector('input').checked));
     $('clTodos').onclick = () => { visibles().forEach((c) => fuera.delete(c.telefono)); pintar(); };
     $('clNinguno').onclick = () => { visibles().forEach((c) => fuera.add(c.telefono)); pintar(); };
     $('cNo').onclick = () => { close(); res(null); };
-    $('cSi').onclick = () => { res({ excluir: [...fuera], incluir: lista.filter((c) => !fuera.has(c.telefono)).map((c) => c.telefono) }); close(); };
+    $('cSi').onclick = () => { const m = b.querySelector('input[name=clModo]:checked'); res({ excluir: [...fuera], incluir: lista.filter((c) => !fuera.has(c.telefono)).map((c) => c.telefono), modo: m ? m.value : 'despues' }); close(); };
     pintar();
   }, () => res(null)));
 }
@@ -849,6 +854,7 @@ $('eNow').onclick = () => enviar(false);
 $('eProg').onclick = () => enviar(true);
 async function renderProgramados() {
   const d = await GET('/api/programados').catch(() => ({ programados: [] }));
+  $('eProgCard').hidden = !d.programados.length;
   $('eProgList').innerHTML = d.programados.length ? d.programados.map((p) => `<div class="li" style="flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(p.nombre)}</b><span class="pill p-mut">Programada</span></div><span class="small muted ell">${fechaLarga(p.fecha)} · ${p.total} contactos${p.extra && p.extra.versiones ? ` · ${p.extra.versiones.length} versiones` : ''}${p.extra && p.extra.adjunto ? ' · 📎' : ''}${p.extra && p.extra.segundo ? ' · 2 mensajes' : ''} · ${esc(p.texto)}</span><div style="display:flex;gap:14px"><button class="btn" data-pl="${p.id}">Ver lista</button><button class="btn" data-pe="${p.id}">Editar</button><button class="btn danger" data-pc="${p.id}">Cancelar</button></div></div>`).join('') : '';
   $('eProgList').querySelectorAll('[data-pl]').forEach((b) => (b.onclick = () => verProgramado(parseInt(b.dataset.pl))));
   $('eProgList').querySelectorAll('[data-pc]').forEach((b) => (b.onclick = async () => { if (confirm('¿Cancelar este envío programado?')) { await DEL('/api/programados/' + b.dataset.pc); renderProgramados(); } }));
@@ -860,33 +866,36 @@ async function renderProgramados() {
 // ---------- Tandas: avance de cada envío y la lista por estado ----------
 const PESTANAS = [['pend', 'Pendientes', (e) => e === 'pendiente' || e === 'enviando'], ['env', 'Enviados', (e) => e === 'enviado'], ['omi', 'Omitidos y sacados', (e) => ['omitido', 'sacado', 'cancelado'].includes(e)], ['err', 'Errores', (e) => e === 'error'], ['todos', 'Todos', () => true]];
 const ESTADO_FILA = { pendiente: ['p-mut', 'Pendiente'], enviando: ['p-info', 'Sale ahora'], enviado: ['p-ok', 'Enviado'], omitido: ['p-mut', 'Omitido'], sacado: ['p-mut', 'Sacado'], cancelado: ['p-mut', 'Cancelado'], error: ['p-bad', 'Error'] };
-const PILL_TANDA = { Enviando: 'p-info', 'En pausa': 'p-warn', Terminada: 'p-ok', Cancelada: 'p-mut' };
-async function renderTandas() {
+const PILL_TANDA = { Enviando: 'p-info', 'En pausa': 'p-mut', 'Espera su turno': 'p-mut', 'En espera': 'p-warn', Terminada: 'p-ok', Cancelada: 'p-mut' };
+// Los grupos con pendientes, dentro de la tarjeta Cola de envío; al presionar uno se abre su lista
+async function renderGrupos() {
   const d = await GET('/api/tandas').catch(() => null); if (!d) return;
-  const sig = JSON.stringify(d.tandas); if (renderTandas.sig === sig) return; renderTandas.sig = sig;
-  $('tList').innerHTML = d.tandas.map((t) => {
+  const vivos = d.tandas.filter((t) => t.pendientes > 0).reverse();   // el más antiguo arriba: sale primero
+  const sig = JSON.stringify(vivos.map((t) => [t.id, t.nombre, t.pendientes, t.enviados, t.estadoTexto, t.despuesDe, t.modo])); if (renderGrupos.sig === sig) return; renderGrupos.sig = sig;
+  $('qGrupos').innerHTML = vivos.map((t) => {
     const hechos = t.total - t.pendientes, pct = t.total ? Math.round((hechos / t.total) * 100) : 0;
-    return `<div class="li" style="flex-direction:column;align-items:stretch;gap:8px">
-      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b class="ell">${esc(t.nombre)}</b><span class="pill ${PILL_TANDA[t.estadoTexto] || 'p-mut'}">${t.estadoTexto}</span></div>
-      <span class="small muted">Lanzada ${esc(fechaLarga(t.creada))}${t.usuario ? ' por ' + esc(t.usuario) : ''}</span>
-      <div class="bar"><div style="width:${pct}%"></div></div>
-      <span class="small muted">${t.enviados} enviados · ${t.pendientes} pendientes · ${t.omitidos} omitidos · ${t.errores} errores (${t.total} en total)</span>
-      <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" data-tv="${t.id}">Ver lista</button>${t.puedeManejar && t.pendientes ? `<button class="btn" data-tp="${t.id}" data-p="${t.pausada ? 0 : 1}">${t.pausada ? 'Reanudar' : 'Pausar esta tanda'}</button><button class="btn danger" data-tc="${t.id}">Cancelar lo que falta</button>` : ''}</div></div>`;
-  }).join('') || (d.programados.length ? '' : '<div class="empty">Aquí verás cada tanda de envío</div>');
-  $('tList').querySelectorAll('[data-tv]').forEach((b) => (b.onclick = () => verTanda(parseInt(b.dataset.tv))));
-  $('tList').querySelectorAll('[data-tp]').forEach((b) => (b.onclick = async () => { await POST(`/api/tandas/${b.dataset.tp}/pausa`, { pausada: b.dataset.p === '1' }).catch((e) => toast(e.message)); renderTandas.sig = null; renderTandas(); }));
-  $('tList').querySelectorAll('[data-tc]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Cancelar los mensajes que faltan de esta tanda? Los que ya salieron no cambian.')) return; await POST(`/api/tandas/${b.dataset.tc}/cancelar`).catch((e) => toast(e.message)); renderTandas.sig = null; renderTandas(); }));
+    const modo = t.despuesDe ? `después de «${esc(t.despuesDe)}»` : t.modo === 'corriendo' ? 'corriendo' : '';
+    return `<button type="button" class="grupo" data-tv="${t.id}">
+      <span style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b class="ell">${esc(t.nombre)}</b><span class="pill ${PILL_TANDA[t.estadoTexto] || 'p-mut'}">${t.estadoTexto}</span></span>
+      <span class="bar"><span style="display:block;height:100%;width:${pct}%;background:var(--terra)"></span></span>
+      <span class="small muted">${hechos} de ${t.total}${t.usuario ? ' · ' + esc(t.usuario) : ''} · ${esc(fechaLarga(t.creada))}${modo ? ' · <b>' + modo + '</b>' : ''}</span></button>`;
+  }).join('');
+  $('qGrupos').querySelectorAll('[data-tv]').forEach((b) => (b.onclick = () => verTanda(parseInt(b.dataset.tv))));
 }
-// La pestañita: la lista de una tanda por estado, con «Primero» y «No enviar» en los pendientes
+// La pestañita: la lista de un grupo por estado. Los pendientes se ordenan arrastrando desde ≡ y tienen «No enviar»
 async function verTanda(id, pestana = 'pend') {
-  let d, filtro = '', preguntando = null;
+  let d, filtro = '', preguntando = null, arrastrado = null;
   const cargar = async () => { d = await GET('/api/tandas/' + id); };
   try { await cargar(); } catch (e) { return toast(e.message); }
-  modal(`<h3 class="ell" id="tvNombre"></h3><div class="chips" id="tvTabs"></div><input type="text" id="tvQ" placeholder="Buscar por nombre o teléfono"><div class="clista" id="tvLista"></div><div style="display:flex;justify-content:flex-end"><button class="btn" data-close>Cerrar</button></div>`, (b, close) => {
+  modal(`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 class="ell grow" id="tvNombre" style="margin:0"></h3><span id="tvAcc" style="display:flex;gap:8px"></span></div><div class="chips" id="tvTabs"></div><input type="text" id="tvQ" placeholder="Buscar por nombre o teléfono"><span class="small muted" id="tvAyuda"></span><div class="clista" id="tvLista"></div><div style="display:flex;justify-content:flex-end"><button class="btn" data-close>Cerrar</button></div>`, (b, close) => {
     b.classList.add('ancho');
+    const ordenable = () => pestana === 'pend' && !filtro.trim() && d.tanda.puedeManejar && d.tanda.estado !== 'cancelada';
     const pintar = () => {
       if (!$('tvLista')) return;
       $('tvNombre').textContent = d.tanda.nombre;
+      const quedan = d.items.some((x) => x.estado === 'pendiente');
+      $('tvAcc').innerHTML = d.tanda.puedeManejar && quedan && d.tanda.estado !== 'cancelada' ? `<button class="btn sm" id="tvPausa">${d.tanda.pausada ? 'Reanudar' : 'Pausar este grupo'}</button><button class="btn sm danger" id="tvCancel">Cancelar grupo</button>` : '';
+      $('tvAyuda').textContent = ordenable() && quedan ? 'Arrastra desde ≡ para cambiar el orden dentro del grupo.' : '';
       $('tvTabs').innerHTML = PESTANAS.map(([k, nom, f]) => `<button class="chip${k === pestana ? ' on' : ''}" data-k="${k}">${nom} (${d.items.filter((x) => f(x.estado)).length})</button>`).join('');
       const f = PESTANAS.find((p) => p[0] === pestana)[2], q = filtro.trim().toLowerCase(), qd = q.replace(/\D/g, '');
       const vs = d.items.filter((x) => f(x.estado) && (!q || (x.nombre || '').toLowerCase().includes(q) || (qd && x.telefono.includes(qd))));
@@ -895,12 +904,13 @@ async function verTanda(id, pestana = 'pend') {
         const acciones = x.estado === 'pendiente' && d.tanda.puedeManejar
           ? (preguntando === x.id
             ? `<div class="clpreg"><span class="small">¿Sacarlo también de los seguimientos automáticos?</span><button class="btn sm" data-si="${x.id}">Sí, también</button><button class="btn sm" data-solo="${x.id}">Solo de esta tanda</button><button class="lnk" data-volver>Volver</button></div>`
-            : `<button class="btn sm" data-pri="${x.id}">Primero</button><button class="btn sm danger" data-no="${x.id}">No enviar</button>`)
+            : `<button class="btn sm danger" data-no="${x.id}">No enviar</button>`)
           : '';
-        return `<div class="clrow"><span class="small muted">${i + 1}</span><span class="grow ell">${esc(nombreDe(x))}</span><span class="small muted">${esc(fmtTel(x.telefono))}</span>${x.escribio ? `<span class="pill p-terra">${esc(x.escribio)}</span>` : ''}<span class="pill ${cls}" title="${esc(x.detalle || '')}">${txt}</span>${acciones}</div>`;
+        const asa = x.estado === 'pendiente' && ordenable() ? '<span class="asa" draggable="true" title="Arrastra para cambiar el orden">≡</span>' : '';
+        return `<div class="clrow" data-id="${x.id}" data-est="${x.estado}">${asa}<span class="small muted">${i + 1}</span><span class="grow ell">${esc(nombreDe(x))}</span><span class="small muted">${esc(fmtTel(x.telefono))}</span>${x.escribio ? `<span class="pill p-terra">${esc(x.escribio)}</span>` : ''}<span class="pill ${cls}" title="${esc(x.detalle || '')}">${txt}</span>${acciones}</div>`;
       }).join('') + (vs.length > MAX_FILAS ? `<div class="small muted clmas">… y ${vs.length - MAX_FILAS} más: usa el buscador</div>` : '') + (!vs.length ? '<div class="small muted clmas">No hay nadie aquí</div>' : '');
     };
-    const recargar = async () => { try { await cargar(); } catch {} pintar(); renderTandas.sig = null; renderTandas(); };
+    const recargar = async () => { try { await cargar(); } catch {} pintar(); renderGrupos.sig = null; renderGrupos(); };
     const sacar = async (itemId, seguimientos) => {
       const r = await POST(`/api/tandas/item/${itemId}/sacar`, { seguimientos }).catch((e) => { toast(e.message); return null; });
       if (r && r.resultado === 'ya_salio') toast(seguimientos ? 'Ya se estaba enviando. Los seguimientos automáticos quedaron detenidos.' : 'Ya se estaba enviando');
@@ -914,10 +924,31 @@ async function verTanda(id, pestana = 'pend') {
       else if (e.target.hasAttribute('data-volver')) { preguntando = null; pintar(); }
       else if (ds.si) sacar(ds.si, true);
       else if (ds.solo) sacar(ds.solo, false);
-      else if (ds.pri) { await POST(`/api/tandas/item/${ds.pri}/primero`).catch((er) => toast(er.message)); recargar(); }
     };
-    // Mientras esté abierta, se actualiza sola (sin interrumpir una pregunta en curso)
-    verTanda.refrescar = async () => { if (!$('tvLista') || preguntando) return; await cargar().catch(() => {}); pintar(); };
+    $('tvAcc').onclick = async (e) => {
+      if (e.target.id === 'tvPausa') { await POST(`/api/tandas/${id}/pausa`, { pausada: !d.tanda.pausada }).catch((er) => toast(er.message)); recargar(); }
+      if (e.target.id === 'tvCancel') { if (!confirm('¿Cancelar los mensajes que faltan de este grupo? Los que ya salieron no cambian.')) return; await POST(`/api/tandas/${id}/cancelar`).catch((er) => toast(er.message)); recargar(); }
+    };
+    // Arrastrar desde ≡: se suelta arriba o abajo de otra fila pendiente y el orden se guarda al tiro
+    const lista = $('tvLista');
+    const limpiar = () => lista.querySelectorAll('.sobre,.sobre-abajo,.arrastrando').forEach((x) => x.classList.remove('sobre', 'sobre-abajo', 'arrastrando'));
+    const destino = (e) => { const f = e.target.closest('.clrow[data-est="pendiente"]'); return f && f.dataset.id != arrastrado ? f : null; };
+    lista.addEventListener('dragstart', (e) => { const f = e.target.closest('.clrow'); if (!f || !e.target.classList.contains('asa')) return; arrastrado = f.dataset.id; f.classList.add('arrastrando'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', arrastrado); e.dataTransfer.setDragImage(f, 20, 16); });
+    lista.addEventListener('dragover', (e) => { if (!arrastrado) return; const f = destino(e); if (!f) return; e.preventDefault(); const abajo = e.offsetY > f.offsetHeight / 2 && e.target === f; lista.querySelectorAll('.sobre,.sobre-abajo').forEach((x) => x.classList.remove('sobre', 'sobre-abajo')); f.classList.add(abajo ? 'sobre-abajo' : 'sobre'); });
+    lista.addEventListener('dragend', () => { arrastrado = null; limpiar(); });
+    lista.addEventListener('drop', async (e) => {
+      const f = destino(e); if (!arrastrado || !f) return; e.preventDefault();
+      const abajo = f.classList.contains('sobre-abajo'), mov = arrastrado; arrastrado = null; limpiar();
+      const ids = d.items.filter((x) => x.estado === 'pendiente').map((x) => String(x.id)).filter((x) => x !== mov);
+      ids.splice(ids.indexOf(f.dataset.id) + (abajo ? 1 : 0), 0, mov);
+      const porId = new Map(d.items.map((x) => [String(x.id), x]));
+      d.items = [...d.items.filter((x) => x.estado !== 'pendiente'), ...ids.map((x) => porId.get(x))].sort((a, b) => (a.estado === 'pendiente') - (b.estado === 'pendiente'));
+      pintar();
+      try { await PUT(`/api/tandas/${id}/orden`, { ids: ids.map(Number) }); } catch (er) { toast(er.message); }
+      recargar();
+    });
+    // Mientras esté abierta, se actualiza sola (sin interrumpir una pregunta ni un arrastre en curso)
+    verTanda.refrescar = async () => { if (!$('tvLista') || preguntando || arrastrado) return; await cargar().catch(() => {}); pintar(); };
     pintar();
   }, () => { verTanda.refrescar = null; });
 }
@@ -946,7 +977,7 @@ function renderCola() {
   $('qBar').style.width = Math.min(100, (q.enviadosHoy / Math.max(1, q.limite)) * 100) + '%';
   const secs = q.nextAt ? Math.max(0, Math.round((q.nextAt - Date.now()) / 1000)) : null;
   $('qEspera').innerHTML = q.pausada ? '<span style="color:var(--warn)">En pausa</span>' : q.espera ? `<span style="color:var(--warn)">${esc(q.espera)}</span>` : q.pendientes ? (secs != null ? `Próximo en ${secs > 90 ? Math.round(secs / 60) + ' min' : secs + ' s'} · ${esc(det)}` : 'Enviando… · ' + esc(det)) : `Hoy: ${q.enviadosHoy} de ${q.limite}`;
-  $('qPause').textContent = q.pausada ? 'Reanudar' : 'Pausar';
+  $('qPause').textContent = q.pausada ? 'Reanudar todo' : 'Pausar todo';
   const sig = JSON.stringify(EST.eventos.slice(-40));
   if (renderCola.sig !== sig) { renderCola.sig = sig; $('qLog').innerHTML = [...EST.eventos].reverse().slice(0, 40).map((e) => `<div><span class="muted">${e.hora}</span><span class="st-${e.estado}">${e.estado}</span><span class="grow">${esc(e.quien || '')}${e.detalle ? ' · ' + esc(e.detalle) : ''}</span>${e.tel ? `<button class="lnk" data-chat="${esc(e.tel)}">Abrir en WhatsApp</button>` : ''}</div>`).join('') || '<div class="muted" style="display:block">Aquí verás cada envío.</div>'; }
 }

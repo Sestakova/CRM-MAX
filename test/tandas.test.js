@@ -61,7 +61,7 @@ test('estadoTanda', () => {
 
 test('estadoTanda con turno y bloqueo general', () => {
   assert.equal(estadoTanda({ estado: 'activa', pausada: 0, pendientes: 3, puedeEnviar: false }), 'Espera su turno');
-  assert.equal(estadoTanda({ estado: 'activa', pausada: 0, pendientes: 3, puedeEnviar: true, bloqueoGlobal: true }), 'Esperando horario o límite');
+  assert.equal(estadoTanda({ estado: 'activa', pausada: 0, pendientes: 3, puedeEnviar: true, bloqueoGlobal: true }), 'En espera');
   assert.equal(estadoTanda({ estado: 'activa', pausada: 1, pendientes: 3, puedeEnviar: false }), 'En pausa');
 });
 

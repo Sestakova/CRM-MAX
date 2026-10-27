@@ -53,7 +53,7 @@ function estadoTanda({ estado, pausada, pendientes, puedeEnviar = true, bloqueoG
   if (!pendientes) return 'Terminada';
   if (pausada) return 'En pausa';
   if (!puedeEnviar) return 'Espera su turno';
-  return bloqueoGlobal ? 'Esperando horario o límite' : 'Enviando';
+  return bloqueoGlobal ? 'En espera' : 'Enviando';
 }
 
 // Cada usuario con permiso de masivos maneja sus tandas; el administrador, todas

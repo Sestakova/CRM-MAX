@@ -322,3 +322,15 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .clrow.off .grow{color:var(--muted);text-decoration:line-through}
 .clmas{padding:10px 12px}
 .clpreg{flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+
+/* Grupos dentro de la Cola de envío */
+.grupos{display:flex;flex-direction:column;gap:8px}
+.grupo{border:1px solid var(--line2);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;background:var(--paper);text-align:left;font:inherit;color:inherit}
+.grupo:hover{background:var(--bg)}
+.asa{color:var(--muted);font-size:18px;cursor:grab;user-select:none;padding:0 2px;line-height:1}
+.clrow.arrastrando{opacity:.5;border:1px dashed var(--terra)}
+.clrow.sobre{box-shadow:inset 0 2px 0 var(--terra)}
+.clrow.sobre-abajo{box-shadow:inset 0 -2px 0 var(--terra)}
+.opc{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.opc.on{border:2px solid var(--terra);background:var(--terra-l)}
+.opc input{margin-top:3px;accent-color:var(--terra)}
