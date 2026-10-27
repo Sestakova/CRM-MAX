@@ -189,8 +189,15 @@ app.whenReady().then(async () => {
   });
   win.webContents.on('did-start-navigation', (e) => { if (e.isMainFrame) waView.setVisible(false); });
   win.webContents.on('render-process-gone', () => waView.setVisible(false));
-  // Los enlaces externos se abren en el navegador normal
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  // Los enlaces externos se abren en el navegador normal (solo http/https: el Cotizador muestra una página de afuera)
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  // La ventana del CRM nunca deja su página: si la página del Cotizador intenta reemplazarla, se abre en el navegador
+  const propia = `http://127.0.0.1:${srv.port}`;
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url === propia || url.startsWith(propia + '/')) return;
+    e.preventDefault();
+    if (/^https?:/.test(url)) shell.openExternal(url);
+  });
 
   // Cerrar la ventana no cierra el programa: queda junto al reloj
   win.on('close', (e) => {

@@ -109,9 +109,12 @@ function layout() {
     const cx = W / 2, cy = H / 2 + 8;
     const cs = Math.round(Math.max(150, Math.min(300, H * 0.30, W * 0.22)));
     const ss = Math.round(Math.max(64, Math.min(128, H * 0.13)));
-    const rx = Math.min(W * 0.32, 540), ry = Math.min(H * 0.36, 340);
-    const n = sats.length - 1;   // los círculos, repartidos parejo alrededor del centro
-    const pts = Array.from({ length: n }, (_, i) => -90 + (360 / n) * i).map((a) => [cx + rx * Math.cos(a * Math.PI / 180), cy + ry * Math.sin(a * Math.PI / 180)]);
+    // Los círculos, repartidos parejo alrededor del centro. Con un número par se giran medio paso para que ninguno quede justo abajo
+    const n = sats.length - 1;
+    const angs = Array.from({ length: n }, (_, i) => -90 + (n % 2 ? 0 : 180 / n) + (360 / n) * i);
+    const bajo = Math.max(...angs.map((a) => Math.sin(a * Math.PI / 180)));   // cuánto baja el círculo más bajo
+    const rx = Math.min(W * 0.32, 540), ry = Math.min(H * 0.36, 340, (H - cy - ss / 2 - 60) / bajo);   // 60: nombre y dato bajo el círculo
+    const pts = angs.map((a) => [cx + rx * Math.cos(a * Math.PI / 180), cy + ry * Math.sin(a * Math.PI / 180)]);
     const c = $('centro'); Object.assign(c.style, { left: cx - cs / 2 + 'px', top: cy - cs / 2 + 'px', width: cs + 'px', height: cs + 'px' });
     sats.forEach((el, i) => {
       el.classList.remove('on'); el.classList.toggle('oculto', i === 0);
