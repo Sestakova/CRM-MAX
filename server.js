@@ -1116,7 +1116,7 @@ app.get('/api/tandas', (req, res) => {
 app.get('/api/tandas/:id', (req, res) => {
   const t = db.tanda(parseInt(req.params.id)); if (!t) return fail(res, 'Esa tanda ya no existe', 404);
   const ahora = new Date();
-  res.json({ tanda: { ...t, puedeManejar: TANDAS.puedeManejar(t, quienSoy(req)) }, items: db.itemsDeTanda(t.id).map((x) => ({ ...x, nombre: x.nombre || nombreC(x.telefono), escribio: x.estado === 'pendiente' || x.estado === 'enviando' ? TANDAS.escribioHace(x.ultimo_entrante, t.creada, ahora) : null })) });
+  res.json({ tanda: { ...t, puedeManejar: TANDAS.puedeManejar(t, quienSoy(req)) }, items: db.itemsDeTanda(t.id).map((x) => ({ ...x, escribio: x.estado === 'pendiente' || x.estado === 'enviando' ? TANDAS.escribioHace(x.ultimo_entrante, t.creada, ahora) : null })) });
 });
 app.post('/api/tandas/:id/pausa', (req, res) => {
   const t = db.tanda(parseInt(req.params.id)); if (!t) return fail(res, 'Esa tanda ya no existe', 404);

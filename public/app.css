@@ -321,3 +321,4 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .clrow:last-child{border-bottom:0}
 .clrow.off .grow{color:var(--muted);text-decoration:line-through}
 .clmas{padding:10px 12px}
+.clpreg{flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}

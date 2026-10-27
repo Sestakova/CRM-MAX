@@ -218,7 +218,7 @@ async function poll() {
     const cb = s.avisos?.campana || 0; $('campBadge').hidden = !cb; $('campBadge').textContent = cb;
     pintarDatos();
     revisarActualizacion(s.actualizacion);
-    if (current === 'envios') renderCola();
+    if (current === 'envios') { renderCola(); renderTandas(); if (verTanda.refrescar) verTanda.refrescar(); }
     if (current === 'config') renderWaCard();
     if (!poll.novedades && s.version) { poll.novedades = true; novedades(s.version); }
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
@@ -671,7 +671,7 @@ async function loadEnvios() {
   $('eVars').querySelectorAll('[data-var]').forEach((b) => (b.onmousedown = (ev) => { ev.preventDefault(); insertarEn(txtActivo(), b.dataset.var); }));
   if (!$('eWhen').value) { const d2 = new Date(Date.now() + 86400000); d2.setHours(10, 0, 0, 0); $('eWhen').value = new Date(d2 - d2.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   if (!$('eVersiones').children.length) renderVersiones();
-  renderDest(); renderProgramados(); renderCola(); contarSeg();
+  renderDest(); renderProgramados(); renderTandas(); renderCola(); contarSeg();
 }
 function renderDest() {
   const max = 14;
@@ -802,7 +802,7 @@ async function enviar(programar) {
   try {
     const d = await POST('/api/envios', { destinatarios: dest, segmento, excluir, texto, versiones, adjunto: adjEnv ? adjEnv.id : null, segundo, secuencia: $('eSeq').checked, noRepetir: $('eNoRep').checked, cuando: cuando ? cuando.toISOString() : null, nombre: $('eProgNom').value.trim() || null });
     $('eRes').textContent = programar ? `Programado para ${fechaLarga(cuando)} (${d.total} contactos).` : `${d.total} mensajes en la cola. Puedes seguir trabajando mientras se envían.`;
-    dest = []; renderDest(); renderProgramados();
+    dest = []; renderDest(); renderProgramados(); renderTandas();
   } catch (e) { $('eRes').textContent = e.message; }
 }
 // Ventana de confirmación con la lista completa: se puede desmarcar a quien no va.
@@ -848,12 +848,94 @@ $('eNow').onclick = () => enviar(false);
 $('eProg').onclick = () => enviar(true);
 async function renderProgramados() {
   const d = await GET('/api/programados').catch(() => ({ programados: [] }));
-  $('eProgList').innerHTML = d.programados.length ? d.programados.map((p) => `<div class="li" style="flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(p.nombre)}</b><span class="pill p-info">${fechaLarga(p.fecha)}</span></div><span class="small muted ell">${p.total} contactos${p.extra && p.extra.versiones ? ` · ${p.extra.versiones.length} versiones` : ''}${p.extra && p.extra.adjunto ? ' · 📎' : ''}${p.extra && p.extra.segundo ? ' · 2 mensajes' : ''} · ${esc(p.texto)}</span><div style="display:flex;gap:14px"><button class="btn" data-pe="${p.id}">Editar</button><button class="btn danger" data-pc="${p.id}">Cancelar</button></div></div>`).join('') : '<div class="empty">No hay envíos programados</div>';
+  $('eProgList').innerHTML = d.programados.length ? d.programados.map((p) => `<div class="li" style="flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(p.nombre)}</b><span class="pill p-mut">Programada</span></div><span class="small muted ell">${fechaLarga(p.fecha)} · ${p.total} contactos${p.extra && p.extra.versiones ? ` · ${p.extra.versiones.length} versiones` : ''}${p.extra && p.extra.adjunto ? ' · 📎' : ''}${p.extra && p.extra.segundo ? ' · 2 mensajes' : ''} · ${esc(p.texto)}</span><div style="display:flex;gap:14px"><button class="btn" data-pl="${p.id}">Ver lista</button><button class="btn" data-pe="${p.id}">Editar</button><button class="btn danger" data-pc="${p.id}">Cancelar</button></div></div>`).join('') : '';
+  $('eProgList').querySelectorAll('[data-pl]').forEach((b) => (b.onclick = () => verProgramado(parseInt(b.dataset.pl))));
   $('eProgList').querySelectorAll('[data-pc]').forEach((b) => (b.onclick = async () => { if (confirm('¿Cancelar este envío programado?')) { await DEL('/api/programados/' + b.dataset.pc); renderProgramados(); } }));
   $('eProgList').querySelectorAll('[data-pe]').forEach((b) => (b.onclick = () => { const p = d.programados.find((x) => x.id == b.dataset.pe); const fp = new Date(p.fecha); const loc = new Date(fp - fp.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     modal(`<h3>Editar envío programado</h3><label class="f">Nombre<input type="text" id="pN" value="${esc(p.nombre)}"></label><label class="f">Fecha y hora<input type="datetime-local" id="pF" value="${loc}"></label><label class="f">Mensaje<textarea id="pT" rows="6">${esc(p.texto)}</textarea></label><div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" data-close>Cancelar</button><button class="btn pri" id="pS">Guardar</button></div>`, (bx, close) => {
       $('pS').onclick = async () => { const f = new Date($('pF').value); if (isNaN(f)) return; await PATCH('/api/programados/' + p.id, { nombre: $('pN').value, texto: $('pT').value, fecha: f.toISOString() }); close(); renderProgramados(); };
     }); }));
+}
+// ---------- Tandas: avance de cada envío y la lista por estado ----------
+const PESTANAS = [['pend', 'Pendientes', (e) => e === 'pendiente' || e === 'enviando'], ['env', 'Enviados', (e) => e === 'enviado'], ['omi', 'Omitidos y sacados', (e) => ['omitido', 'sacado', 'cancelado'].includes(e)], ['err', 'Errores', (e) => e === 'error'], ['todos', 'Todos', () => true]];
+const ESTADO_FILA = { pendiente: ['p-mut', 'Pendiente'], enviando: ['p-info', 'Sale ahora'], enviado: ['p-ok', 'Enviado'], omitido: ['p-mut', 'Omitido'], sacado: ['p-mut', 'Sacado'], cancelado: ['p-mut', 'Cancelado'], error: ['p-bad', 'Error'] };
+const PILL_TANDA = { Enviando: 'p-info', 'En pausa': 'p-warn', Terminada: 'p-ok', Cancelada: 'p-mut' };
+async function renderTandas() {
+  const d = await GET('/api/tandas').catch(() => null); if (!d) return;
+  const sig = JSON.stringify(d.tandas); if (renderTandas.sig === sig) return; renderTandas.sig = sig;
+  $('tList').innerHTML = d.tandas.map((t) => {
+    const hechos = t.total - t.pendientes, pct = t.total ? Math.round((hechos / t.total) * 100) : 0;
+    return `<div class="li" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b class="ell">${esc(t.nombre)}</b><span class="pill ${PILL_TANDA[t.estadoTexto] || 'p-mut'}">${t.estadoTexto}</span></div>
+      <span class="small muted">Lanzada ${esc(fechaLarga(t.creada))}${t.usuario ? ' por ' + esc(t.usuario) : ''}</span>
+      <div class="bar"><div style="width:${pct}%"></div></div>
+      <span class="small muted">${t.enviados} enviados · ${t.pendientes} pendientes · ${t.omitidos} omitidos · ${t.errores} errores (${t.total} en total)</span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" data-tv="${t.id}">Ver lista</button>${t.puedeManejar && t.pendientes ? `<button class="btn" data-tp="${t.id}" data-p="${t.pausada ? 0 : 1}">${t.pausada ? 'Reanudar' : 'Pausar esta tanda'}</button><button class="btn danger" data-tc="${t.id}">Cancelar lo que falta</button>` : ''}</div></div>`;
+  }).join('') || (d.programados.length ? '' : '<div class="empty">Aquí verás cada tanda de envío</div>');
+  $('tList').querySelectorAll('[data-tv]').forEach((b) => (b.onclick = () => verTanda(parseInt(b.dataset.tv))));
+  $('tList').querySelectorAll('[data-tp]').forEach((b) => (b.onclick = async () => { await POST(`/api/tandas/${b.dataset.tp}/pausa`, { pausada: b.dataset.p === '1' }).catch((e) => toast(e.message)); renderTandas.sig = null; renderTandas(); }));
+  $('tList').querySelectorAll('[data-tc]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Cancelar los mensajes que faltan de esta tanda? Los que ya salieron no cambian.')) return; await POST(`/api/tandas/${b.dataset.tc}/cancelar`).catch((e) => toast(e.message)); renderTandas.sig = null; renderTandas(); }));
+}
+// La pestañita: la lista de una tanda por estado, con «Primero» y «No enviar» en los pendientes
+async function verTanda(id, pestana = 'pend') {
+  let d, filtro = '', preguntando = null;
+  const cargar = async () => { d = await GET('/api/tandas/' + id); };
+  try { await cargar(); } catch (e) { return toast(e.message); }
+  modal(`<h3 class="ell" id="tvNombre"></h3><div class="chips" id="tvTabs"></div><input type="text" id="tvQ" placeholder="Buscar por nombre o teléfono"><div class="clista" id="tvLista"></div><div style="display:flex;justify-content:flex-end"><button class="btn" data-close>Cerrar</button></div>`, (b, close) => {
+    b.classList.add('ancho');
+    const pintar = () => {
+      if (!$('tvLista')) return;
+      $('tvNombre').textContent = d.tanda.nombre;
+      $('tvTabs').innerHTML = PESTANAS.map(([k, nom, f]) => `<button class="chip${k === pestana ? ' on' : ''}" data-k="${k}">${nom} (${d.items.filter((x) => f(x.estado)).length})</button>`).join('');
+      const f = PESTANAS.find((p) => p[0] === pestana)[2], q = filtro.trim().toLowerCase(), qd = q.replace(/\D/g, '');
+      const vs = d.items.filter((x) => f(x.estado) && (!q || (x.nombre || '').toLowerCase().includes(q) || (qd && x.telefono.includes(qd))));
+      $('tvLista').innerHTML = vs.slice(0, MAX_FILAS).map((x, i) => {
+        const [cls, txt] = ESTADO_FILA[x.estado] || ['p-mut', x.estado];
+        const acciones = x.estado === 'pendiente' && d.tanda.puedeManejar
+          ? (preguntando === x.id
+            ? `<div class="clpreg"><span class="small">¿Sacarlo también de los seguimientos automáticos?</span><button class="btn sm" data-si="${x.id}">Sí, también</button><button class="btn sm" data-solo="${x.id}">Solo de esta tanda</button><button class="lnk" data-volver>Volver</button></div>`
+            : `<button class="btn sm" data-pri="${x.id}">Primero</button><button class="btn sm danger" data-no="${x.id}">No enviar</button>`)
+          : '';
+        return `<div class="clrow"><span class="small muted">${i + 1}</span><span class="grow ell">${esc(nombreDe(x))}</span><span class="small muted">${esc(fmtTel(x.telefono))}</span>${x.escribio ? `<span class="pill p-terra">${esc(x.escribio)}</span>` : ''}<span class="pill ${cls}" title="${esc(x.detalle || '')}">${txt}</span>${acciones}</div>`;
+      }).join('') + (vs.length > MAX_FILAS ? `<div class="small muted clmas">… y ${vs.length - MAX_FILAS} más: usa el buscador</div>` : '') + (!vs.length ? '<div class="small muted clmas">No hay nadie aquí</div>' : '');
+    };
+    const recargar = async () => { try { await cargar(); } catch {} pintar(); renderTandas.sig = null; renderTandas(); };
+    const sacar = async (itemId, seguimientos) => {
+      const r = await POST(`/api/tandas/item/${itemId}/sacar`, { seguimientos }).catch((e) => { toast(e.message); return null; });
+      if (r && r.resultado === 'ya_salio') toast('Ya se estaba enviando');
+      preguntando = null; recargar();
+    };
+    $('tvTabs').onclick = (e) => { const k = e.target.dataset.k; if (k) { pestana = k; pintar(); } };
+    $('tvQ').oninput = (e) => { filtro = e.target.value; pintar(); };
+    $('tvLista').onclick = async (e) => {
+      const ds = e.target.dataset;
+      if (ds.no) { preguntando = parseInt(ds.no); pintar(); }
+      else if (e.target.hasAttribute('data-volver')) { preguntando = null; pintar(); }
+      else if (ds.si) sacar(ds.si, true);
+      else if (ds.solo) sacar(ds.solo, false);
+      else if (ds.pri) { await POST(`/api/tandas/item/${ds.pri}/primero`).catch((er) => toast(er.message)); recargar(); }
+    };
+    // Mientras esté abierta, se actualiza sola (sin interrumpir una pregunta en curso)
+    verTanda.refrescar = async () => { if (!$('tvLista') || preguntando) return; await cargar().catch(() => {}); pintar(); };
+    pintar();
+  }, () => { verTanda.refrescar = null; });
+}
+// Lista de un envío programado: se puede sacar a alguien antes de que salga
+async function verProgramado(id) {
+  let d; try { d = await GET(`/api/programados/${id}/lista`); } catch (e) { return toast(e.message); }
+  modal(`<h3 class="ell">${esc(d.nombre)}</h3><p class="small muted" style="margin:0" id="vpN"></p><div class="clista" id="vpLista"></div><div style="display:flex;justify-content:flex-end"><button class="btn" data-close>Cerrar</button></div>`, (b) => {
+    b.classList.add('ancho');
+    const pintar = () => {
+      $('vpN').textContent = `Programada para ${d.items.length} contacto${d.items.length === 1 ? '' : 's'}`;
+      $('vpLista').innerHTML = d.items.slice(0, MAX_FILAS).map((c, i) => `<div class="clrow"><span class="small muted">${i + 1}</span><span class="grow ell">${esc(c.nombre || fmtTel(c.telefono))}</span><span class="small muted">${esc(fmtTel(c.telefono))}</span>${d.puedeManejar ? `<button class="btn sm danger" data-t="${esc(c.telefono)}">No enviar</button>` : ''}</div>`).join('') + (d.items.length > MAX_FILAS ? `<div class="small muted clmas">… y ${d.items.length - MAX_FILAS} más</div>` : '');
+    };
+    $('vpLista').onclick = async (e) => {
+      const t = e.target.dataset.t; if (!t) return;
+      await POST(`/api/programados/${id}/quitar`, { telefono: t }).catch((er) => toast(er.message));
+      d.items = d.items.filter((c) => c.telefono !== t); pintar(); renderProgramados();
+    };
+    pintar();
+  });
 }
 const TIPO = { masivo: 'Envío', programado: 'Programado', seguimiento1: 'Seguimiento 1', seguimiento2: 'Seguimiento 2', meta: 'Mensaje 1 (Meta)', agendado: 'Agendado' };
 function renderCola() {
