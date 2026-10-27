@@ -231,6 +231,7 @@ async function poll() {
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
+  '4.2.1': ['Arreglo: el Cotizador ya deja iniciar sesión y la recuerda, igual que WhatsApp'],
   '4.2.0': ['Nueva sección Cotizador: tu cuenta de miscotizadores dentro del CRM (atajo 7)'],
   '4.1.0': ['Cada envío masivo es un grupo dentro de la Cola de envío: tócalo para ver a quién le falta, a quién le llegó y a quién sacaste', 'Ordena a las personas de un grupo arrastrándolas desde ≡, o sácalas con «No enviar»', 'Al lanzar otro envío eliges «Después» (espera a los que están saliendo) o «Corriendo» (sale a la vez, con su propio ritmo)', 'Antes de enviar ves la lista completa y puedes desmarcar a quien no corresponda', 'Agendar llamada: eliges en cada llamada si va la confirmación, el recordatorio y el aviso de Windows, y puedes editar los textos ahí mismo', 'Automáticos más simple: se quitan Llamadas, Postventa y referidos, Resumen diario y Estado de la secuencia', 'Barra superior verde, con el color del CRM'],
   '4.0.1': ['Envíos: nuevo botón "Elegir de WhatsApp" para elegir uno o varios contactos de tus chats recientes o de los contactos guardados en tu celular', 'Busca por nombre o número, marca varios a la vez o todos los de la lista', 'Los que pidieron BAJA no se pueden elegir y los que ya están en la lista aparecen marcados'],
@@ -363,17 +364,19 @@ async function loadChats() {
   $('waMsg').textContent = NATIVO ? 'Abriendo WhatsApp…' : 'WhatsApp se ve solo dentro del programa CRM HERMES.';
   fichaSig = ''; await leerActivo(); syncVista(true);
 }
-// Muestra la vista de WhatsApp solo cuando corresponde (nunca con el PIN, un modal o en otra sección)
-let vistaSig = '';
+// Muestra las vistas de WhatsApp y del Cotizador solo cuando corresponde (nunca con el PIN, un modal o en otra sección)
+let vistaSig = '', cotSig = '';
 function syncVista(forzar) {
   if (!NATIVO) return;
-  const host = $('waHost');
-  const mostrar = YO && current === 'chats' && !document.body.classList.contains('locked') && !document.body.classList.contains('tapado') && $('modal').hidden && !document.hidden;
-  let r = null;
-  if (mostrar) { const b = host.getBoundingClientRect(); if (b.width > 20 && b.height > 20) r = { x: b.left, y: b.top, width: b.width, height: b.height }; }
+  const libre = YO && !document.body.classList.contains('locked') && !document.body.classList.contains('tapado') && $('modal').hidden && !document.hidden;
+  const caja = (id) => { const b = $(id).getBoundingClientRect(); return b.width > 20 && b.height > 20 ? { x: b.left, y: b.top, width: b.width, height: b.height } : null; };
+  const r = libre && current === 'chats' ? caja('waHost') : null;
   const sig = JSON.stringify(r);
-  if (sig === vistaSig && !forzar) return; vistaSig = sig;
-  window.crmNativo.waVista(r);
+  if (sig !== vistaSig || forzar) { vistaSig = sig; window.crmNativo.waVista(r); }
+  if (!window.crmNativo.cotVista) return;
+  const c = libre && current === 'cotizador' ? caja('cotizCaja') : null;
+  const sigC = JSON.stringify(c);
+  if (sigC !== cotSig || forzar) { cotSig = sigC; window.crmNativo.cotVista(c); }
 }
 setInterval(syncVista, 300);
 // Volvió internet: WhatsApp reintenta al tiro en vez de esperar
@@ -1006,14 +1009,16 @@ $('qPause').onclick = async () => { await POST('/api/cola/pausa', { pausada: !ES
 $('qCancel').onclick = async () => { if (confirm('¿Cancelar todos los envíos pendientes? Los seguimientos automáticos se mantienen.')) { await POST('/api/cola/cancelar'); poll(); } };
 
 // ---------------- Cotizador ----------------
-// La página de miscotizadores, incrustada. Se crea una sola vez: al cambiar de sección y volver, sigue donde quedó
+// En el programa, miscotizadores va en su propia vista con la sesión guardada (como WhatsApp); syncVista la ubica sobre #cotizCaja.
+// En un navegador común (pruebas) va incrustada. Se carga una sola vez: al cambiar de sección y volver, sigue donde quedó
 const COTIZADOR = 'https://panel.miscotizadores.cl/dashboard';
 function loadCotizador() {
   $('headActions').innerHTML = '<button class="btn" id="cotRec">Recargar</button><button class="btn" id="cotNav">Abrir en el navegador</button>';
+  $('cotNav').onclick = () => window.open(COTIZADOR, '_blank');
+  if (NATIVO && window.crmNativo.cotVista) { $('cotRec').onclick = () => window.crmNativo.cotRecargar(); syncVista(true); return; }
   let f = $('cotizCaja').querySelector('iframe');
   if (!f) { f = document.createElement('iframe'); f.title = 'Cotizador'; f.allow = 'clipboard-read; clipboard-write'; f.src = COTIZADOR; $('cotizCaja').appendChild(f); }
   $('cotRec').onclick = () => { f.src = COTIZADOR; };
-  $('cotNav').onclick = () => window.open(COTIZADOR, '_blank');
 }
 
 // ---------------- Automáticos ----------------

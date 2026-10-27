@@ -187,8 +187,27 @@ app.whenReady().then(async () => {
     waView.setBounds({ x: Math.round(r.x * z), y: Math.round(r.y * z), width: Math.round(r.width * z), height: Math.round(r.height * z) });
     waView.setVisible(true);
   });
-  win.webContents.on('did-start-navigation', (e) => { if (e.isMainFrame) waView.setVisible(false); });
-  win.webContents.on('render-process-gone', () => waView.setVisible(false));
+  // Cotizador: miscotizadores en su propia vista y con su sesión guardada (incrustada en la página no podía iniciar sesión)
+  const COTIZADOR = 'https://panel.miscotizadores.cl/dashboard';
+  const esCotizador = (u) => /^https:\/\/([a-z0-9-]+\.)*miscotizadores\.cl(\/|$)/i.test(u);
+  session.fromPartition('persist:cotizador').setPermissionRequestHandler((wc, permiso, cb) => cb(['clipboard-read', 'clipboard-sanitized-write'].includes(permiso)));
+  const cotView = new WebContentsView({ webPreferences: { partition: 'persist:cotizador', spellcheck: true } });
+  cotView.setVisible(false);
+  let cotCargado = false;
+  cotView.webContents.setWindowOpenHandler(({ url }) => { if (esCotizador(url)) cotView.webContents.loadURL(url); else if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  cotView.webContents.on('will-navigate', (e, url) => { if (!esCotizador(url)) { e.preventDefault(); if (/^https?:/.test(url)) shell.openExternal(url); } });
+  win.contentView.addChildView(cotView);
+  ipcMain.on('cot-vista', (e, r) => {
+    if (e.sender !== win.webContents) return;
+    if (!r || !(r.width > 20 && r.height > 20)) { cotView.setVisible(false); return; }
+    if (!cotCargado) { cotCargado = true; cotView.webContents.loadURL(COTIZADOR); }   // se carga la primera vez que se abre la sección
+    const z = win.webContents.getZoomFactor() || 1;
+    cotView.setBounds({ x: Math.round(r.x * z), y: Math.round(r.y * z), width: Math.round(r.width * z), height: Math.round(r.height * z) });
+    cotView.setVisible(true);
+  });
+  ipcMain.on('cot-recargar', (e) => { if (e.sender === win.webContents) { cotCargado = true; cotView.webContents.loadURL(COTIZADOR); } });
+  win.webContents.on('did-start-navigation', (e) => { if (e.isMainFrame) { waView.setVisible(false); cotView.setVisible(false); } });
+  win.webContents.on('render-process-gone', () => { waView.setVisible(false); cotView.setVisible(false); });
   // Los enlaces externos se abren en el navegador normal (solo http/https: el Cotizador muestra una página de afuera)
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   // La ventana del CRM nunca deja su página: si la página del Cotizador intenta reemplazarla, se abre en el navegador
