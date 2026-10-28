@@ -576,7 +576,6 @@ async function enviarItem(it) {
 // ---------- Tareas cada minuto: secuencias, programados y UF ----------
 function revisarSecuencias() {
   const cfg = db.getConfig('secuencia');
-  if (cfg.pausada) return;
   const [, p1, p2] = cfg.pasos;
   for (const s of db.secuenciasActivas()) {
     const horas = (Date.now() - new Date(s.seq_inicio)) / 3600000;
@@ -626,7 +625,7 @@ setInterval(() => { try { revisarSecuencias(); revisarProgramados(); } catch (e)
 setTimeout(() => { try { revisarSecuencias(); revisarProgramados(); } catch {} }, 5000);
 actualizarUF(); setInterval(actualizarUF, 3600000);
 
-// ---------- 4.0.0 · Llamadas agendadas, postventa, referidos, resumen diario ----------
+// ---------- Llamadas agendadas ----------
 const DIAS_SEM = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const horaTxt = (d) => new Date(d).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
 function diaTxt(f, ref = new Date()) {
@@ -761,7 +760,6 @@ function metricas(dias) {
     nuevos, ingresados: db.get("SELECT COUNT(*) AS n FROM contactos WHERE etapa = 'Ingresado' AND actualizado >= ?", [desde]).n,
     embudo, motivos, pasos, forms,
     horas: horas.filter((x) => x.env > 0),
-    referidos: db.get("SELECT COUNT(*) AS n FROM contactos WHERE IFNULL(referido_por, '') <> '' AND creado >= ?", [desde]).n,
     plantillas: Object.values(plant).sort((a, b) => b.env - a.env).slice(0, 8)
   };
 }
@@ -905,7 +903,6 @@ app.post('/api/recordatorios/:id/listo', (req, res) => {
   ok(res);
 });
 // Campanita: lo que tienes pendiente para hoy
-app.get('/api/campana', (req, res) => res.json({ recordatorios: db.recordatoriosHasta(finDeHoy().toISOString()) }));
 // Buscar contacto (Ctrl + K)
 app.get('/api/buscar', (req, res) => {
   const q = String(req.query.q || '').trim(); if (!q) return res.json({ resultados: [] });
@@ -1243,7 +1240,7 @@ app.post('/api/chats/:tel', async (req, res) => {
 });
 
 // Configuración
-const EDITABLES = ['reglas', 'secuencia', 'fueraHorario', 'respuestasRapidas', 'avisos', 'apariencia', 'ui', 'llamadas', 'estancado'];
+const EDITABLES = ['reglas', 'secuencia', 'fueraHorario', 'avisos', 'apariencia', 'ui', 'llamadas', 'estancado'];
 app.get('/api/config', (req, res) => res.json(Object.fromEntries([...EDITABLES.map((k) => [k, db.getConfig(k)]), ['etapas', ETAPAS]])));
 app.put('/api/config/:clave', (req, res) => {
   const k = req.params.clave;
@@ -1251,7 +1248,7 @@ app.put('/api/config/:clave', (req, res) => {
   const libre = k === 'ui', auto = ['secuencia', 'fueraHorario', 'llamadas'].includes(k);
   if (!libre && !req.esAdmin && !(auto && req.permisos.automaticos)) return fail(res, 'Solo el administrador puede cambiar esto', 403);
   db.setConfig(k, req.body.valor);
-  const NOM = { reglas: 'las reglas de envío', secuencia: 'los mensajes automáticos', fueraHorario: 'la respuesta fuera de horario', respuestasRapidas: 'las respuestas rápidas', avisos: 'los avisos', apariencia: 'la apariencia', llamadas: 'los mensajes de llamadas', resumen: 'el resumen diario', postventa: 'la postventa', referidos: 'el mensaje de referidos', estancado: 'los días para lead estancado' };
+  const NOM = { reglas: 'las reglas de envío', secuencia: 'los mensajes automáticos', fueraHorario: 'la respuesta fuera de horario', avisos: 'los avisos', apariencia: 'la apariencia', llamadas: 'los mensajes de llamadas', estancado: 'los días para lead estancado' };
   if (!libre) act(req, 'Cambió ' + (NOM[k] || k));
   ok(res);
 });

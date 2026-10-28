@@ -221,7 +221,6 @@ async function poll() {
     const showWa = w.state !== 'listo' && !['config', 'chats'].includes(current);
     $('waBanner').hidden = !showWa;
     $('waBannerTxt').textContent = w.state === 'qr' ? 'WhatsApp no está vinculado. Escanea el código QR para empezar.' : w.state === 'error' ? (w.err || 'No se pudo abrir WhatsApp.') + ' Se reintenta solo.' : (WA_TXT[w.state] || '') + ' Los envíos esperan hasta que conecte.';
-    const cb = s.avisos?.campana || 0; $('campBadge').hidden = !cb; $('campBadge').textContent = cb;
     pintarDatos();
     revisarActualizacion(s.actualizacion);
     if (current === 'envios') { renderCola(); renderGrupos(); if (verTanda.refrescar) verTanda.refrescar(); }
@@ -1416,7 +1415,7 @@ function esqueleto() {
   for (const el of $('sats').children) { el.querySelector('.dato').textContent = ''; el.querySelector('.bdg').hidden = true; }
   $('pendHoy').textContent = 'Ver tu día'; $('saludo').textContent = 'Hola';
   ['ufHoy', 'waTxt', 'hoyTxt'].forEach((id) => ($(id).textContent = '—'));
-  $('campBadge').hidden = true; $('waBanner').hidden = true; $('consejo').hidden = true;
+  $('waBanner').hidden = true; $('consejo').hidden = true;
   cerrarPops(); $('upCard').hidden = true; $('bienvenida').hidden = true;
   layout();
 }
@@ -1466,25 +1465,13 @@ setInterval(() => {
   if (!avisoBloqueo && pasado > (BLOQUEO_MIN - 2) * 60000) { avisoBloqueo = true; toast('El programa se bloqueará en 2 minutos si no respondes ningún chat'); }
 }, 15000);
 
-// ---------------- Campanita, buscador y atajos ----------------
+// ---------------- Buscador y atajos ----------------
 function cerrarPops() {
-  $('campPop').hidden = true; $('bCampana').classList.remove('on');
   $('buscador').hidden = true;
   if ($('upCard').hidden && $('bienvenida').hidden) document.body.classList.remove('tapado');
   syncVista(true);
 }
 function tapar() { document.body.classList.add('tapado'); syncVista(true); }
-async function abrirCampana() {
-  if (!$('campPop').hidden) return cerrarPops();
-  cerrarPops(); tapar(); $('bCampana').classList.add('on');
-  const p = $('campPop'); p.hidden = false; p.innerHTML = '<b style="font-size:16px">Para hoy</b><div class="small muted">Cargando…</div>';
-  const d = await GET('/api/campana').catch(() => ({ recordatorios: [] }));
-  const ahora = new Date();
-  p.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:16px">Para hoy</b><button class="lnk" data-go="hoy">Ver tu día</button></div>` + (d.recordatorios.length ? d.recordatorios.map((r) => `<div class="it ${new Date(r.fecha) <= ahora ? 'venc' : ''}"><div class="grow" style="min-width:0"><b>${hora(r.fecha)} · ${esc(nombreDe(r))}</b><div class="small muted ell">${esc(r.texto || 'Retomar la conversación')}</div></div><button class="btn sm" data-chat="${r.telefono}">Chat</button><button class="btn sm" data-cok="${r.id}">Hecho</button></div>`).join('') : '<div class="empty" style="padding:14px">Nada pendiente para hoy 🙌</div>');
-  p.querySelectorAll('[data-cok]').forEach((b) => (b.onclick = async (e) => { e.stopPropagation(); await POST('/api/recordatorios/' + b.dataset.cok + '/listo'); poll(); $('campPop').hidden = true; abrirCampana(); }));
-}
-$('bCampana').onclick = (e) => { e.stopPropagation(); abrirCampana(); };
-document.addEventListener('mousedown', (e) => { if (!$('campPop').hidden && !$('campPop').contains(e.target) && !$('bCampana').contains(e.target)) cerrarPops(); });
 let bqSel = 0, bqLista = [];
 function abrirBuscar() {
   if (!YO || document.body.classList.contains('locked')) return;
@@ -1519,7 +1506,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (e.defaultPrevented) return;
     if (!$('modal').hidden || !$('bienvenida').hidden || !$('upCard').hidden) return;
-    if (!$('buscador').hidden || !$('campPop').hidden) { cerrarPops(); return; }
+    if (!$('buscador').hidden) { cerrarPops(); return; }
     if (document.querySelector('.emojipop')) return;
     go('inicio'); return;
   }

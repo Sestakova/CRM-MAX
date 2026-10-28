@@ -81,14 +81,12 @@ body.barra .met .pista{display:none}
 body.barra .burbuja{width:68px;height:68px}
 body.barra.compacto .burbuja{width:56px;height:56px}
 body.barra.compacto .burbuja span{display:none}
-body.barra.compacto .stage::after{bottom:55px}
 body.compacto header.top{padding:12px 24px 8px}
 body.compacto header.top h1{font-size:20px}
 .consejo{position:absolute;left:28px;top:10px;max-width:380px;padding:14px 16px;border-radius:16px;background:var(--sand);font-size:14px;line-height:1.45;display:flex;gap:10px;z-index:4}
 body.barra .consejo{display:none}
 .caja{position:absolute;left:24px;right:24px;top:4px;bottom:132px;border-radius:var(--r2);background:#F8F2E8;border:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden;opacity:0;pointer-events:none;transform:translateY(16px);transition:opacity .3s,transform .3s;z-index:2}
 body.barra .caja{opacity:1;pointer-events:auto;transform:none}
-body.barra .stage::after{content:'';position:absolute;left:50%;bottom:71px;width:min(1000px,calc(100% - 340px));height:3px;border-radius:2px;background:#E3D6C0;transform:translateX(-50%);z-index:1}
 
 /* Encabezado de cada sección dentro de la caja */
 header.top{flex-shrink:0;padding:18px 26px 12px;display:flex;align-items:center;justify-content:space-between;gap:16px}

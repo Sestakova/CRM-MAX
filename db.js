@@ -69,12 +69,6 @@ const DEFAULTS = {
     ]
   },
   fueraHorario: { activa: true, texto: '¡Hola {nombre}! Gracias por escribir a Conecta Salud. En este momento estamos fuera de horario, pero mañana a primera hora te respondo. 🙌' },
-  respuestasRapidas: [
-    { atajo: '/cotiza', texto: 'Te envío la cotización con las opciones que revisamos para ti. Cualquier duda me escribes por aquí.' },
-    { atajo: '/cargas', texto: 'Para cotizar con tus cargas necesito la edad de cada una. ¿Me las puedes enviar?' },
-    { atajo: '/docs', texto: 'Para avanzar con el ingreso necesito: carnet por ambos lados, tus últimas 3 liquidaciones de sueldo y el certificado de cotizaciones.' },
-    { atajo: '/gracias', texto: '¡Gracias por tu tiempo! Cualquier duda me escribes por aquí.' }
-  ],
   avisos: { chatNuevo: true, leadNuevo: true, baja: true, sonido: true },
   apariencia: { fondo: 'aurora', opacidad: 46 },
   ui: {},
@@ -86,12 +80,6 @@ const DEFAULTS = {
     avisoMin: 10,
     aviso: { on: true }
   },
-  resumen: { activo: true, hora: '08:30' },
-  postventa: {
-    bienvenida: { on: true, texto: '¡Felicitaciones por tu nuevo plan, {nombre}! 🎉 Gracias por confiar en Conecta Salud. Cualquier duda con tu Isapre, me escribes por aquí y te ayudo.' },
-    control: { on: true, dias: 30, texto: 'Hola {nombre} 👋 Ya llevas un mes con tu nuevo plan. ¿Cómo te ha ido? ¿Te llegó todo bien? Si tienes cualquier duda, aquí estoy.' }
-  },
-  referidos: { on: true, dias: 45, texto: 'Hola {nombre} 😊 Me alegra haberte ayudado con tu plan. Si conoces a alguien que quiera revisar el suyo (familia, amigos o compañeros de trabajo), me puedes pasar su contacto y lo ayudo igual que a ti. ¡Gracias!' },
   estancado: { dias: 5 }
 };
 
@@ -321,7 +309,6 @@ async function openDb(dataDir) {
     crearRecordatorio: (tel, fecha, texto, llamadaId = null) => { run('INSERT INTO recordatorios (telefono, fecha, texto, creado, llamada_id) VALUES (?, ?, ?, ?, ?)', [tel, fecha, texto, now(), llamadaId]); return lastId(); },
     // Próxima acción de cada lead: el recordatorio pendiente más cercano (las llamadas también crean uno)
     proximasAcciones: () => { const m = {}; for (const r of all('SELECT telefono, fecha, texto, llamada_id FROM recordatorios WHERE hecho = 0 ORDER BY fecha ASC')) if (!m[r.telefono]) m[r.telefono] = r; return m; },
-    recordatoriosHasta: (iso) => all(`SELECT r.*, COALESCE(NULLIF(c.nombre, ''), w.nombre) AS nombre, c.apellido FROM recordatorios r LEFT JOIN contactos c ON c.telefono = r.telefono LEFT JOIN nombres_wa w ON w.telefono = r.telefono WHERE r.hecho = 0 AND r.fecha <= ? ORDER BY r.fecha ASC LIMIT 50`, [iso]),
     contarRecordatoriosHasta: (iso) => get('SELECT COUNT(*) AS n FROM recordatorios WHERE hecho = 0 AND fecha <= ?', [iso]).n,
     recordatoriosPendientes: () => all(`SELECT r.*, COALESCE(NULLIF(c.nombre, ''), w.nombre) AS nombre, c.apellido, c.etapa FROM recordatorios r LEFT JOIN contactos c ON c.telefono = r.telefono LEFT JOIN nombres_wa w ON w.telefono = r.telefono WHERE r.hecho = 0 ORDER BY r.fecha ASC LIMIT 200`),
     recordatoriosDe: (tel) => all('SELECT * FROM recordatorios WHERE telefono = ? AND hecho = 0 ORDER BY fecha ASC', [tel]),
