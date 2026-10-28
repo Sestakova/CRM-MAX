@@ -263,7 +263,7 @@ async function poll() {
     $('waBannerTxt').textContent = w.state === 'qr' ? 'WhatsApp no está vinculado. Escanea el código QR para empezar.' : w.state === 'error' ? (w.err || 'No se pudo abrir WhatsApp.') + ' Se reintenta solo.' : (WA_TXT[w.state] || '') + ' Los envíos esperan hasta que conecte.';
     pintarDatos();
     avisoDocumento(s.documento);
-    revisarActualizacion(s.actualizacion);
+    pintarUpBarra(s.actualizacion);
     if (current === 'envios') { renderCola(); renderGrupos(); if (verTanda.refrescar) verTanda.refrescar(); }
     if (current === 'config') renderWaCard();
     if (s.version) $('barraTitulo').textContent = 'CRM HERMES · versión ' + s.version;
@@ -315,19 +315,25 @@ function bienvenida(v) {
   $('bvOk').focus();
   $('bvOk').onclick = () => { b.hidden = true; b.innerHTML = ''; document.body.classList.remove('tapado'); syncVista(true); };
 }
-// Actualización lista: tarjeta para instalar (sin ventanas: se instala sola y el programa vuelve a abrir)
-let upPospuesta = null;
-function revisarActualizacion(u) {
-  if (!u || u.estado !== 'lista' || upPospuesta === u.version || !$('upCard').hidden || !$('bienvenida').hidden) return;
-  const NV = NOVEDADES[u.version];
-  $('upCard').innerHTML = `<div class="upbox" role="dialog" aria-modal="true" aria-label="Actualización lista">
-    <div class="uhd">${LOGO_SVG(56)}<div style="display:flex;flex-direction:column;gap:2px"><span class="eyebrow">Actualización lista</span><span class="ttl">CRM HERMES ${esc(u.version)}</span></div></div>
-    <ul>${(NV ? NV.slice(0, 4) : ['Mejoras y correcciones']).map((x) => `<li>${CHECK}<span>${esc(x)}</span></li>`).join('')}<li>${CHECK}<span>Tus contactos, chats y configuración se mantienen</span></li></ul>
-    <div style="display:flex;flex-direction:column;gap:8px"><div class="bar"><div style="width:100%"></div></div><span class="small muted" id="upEst">Descargada · se instala sola en unos segundos y el programa vuelve a abrir</span></div>
-    <div style="display:flex;gap:12px;justify-content:flex-end"><button class="btn" id="upLuego">Más tarde</button><button class="btn pri" id="upYa">Actualizar ahora</button></div></div>`;
-  $('upCard').hidden = false; document.body.classList.add('tapado'); syncVista(true);
-  $('upLuego').onclick = () => { upPospuesta = u.version; $('upCard').hidden = true; document.body.classList.remove('tapado'); syncVista(true); toast('Se instalará sola cuando cierres el programa'); };
-  $('upYa').onclick = () => { $('upYa').disabled = true; $('upLuego').disabled = true; $('upEst').textContent = 'Instalando… el programa se cierra y vuelve a abrir solo'; POST('/api/actualizacion/instalar').catch(() => {}); };
+// Actualización: barrita con el avance de la descarga y, al terminar, el botón para reiniciar
+const mb = (n) => (n / 1048576).toLocaleString('es-CL', { maximumFractionDigits: 1 });
+function pintarUpBarra(u) {
+  const el = $('upBarra');
+  if (!u || !['descargando', 'lista'].includes(u.estado)) { el.hidden = true; el.innerHTML = ''; return; }
+  const sig = JSON.stringify([u.estado, u.version, u.progreso, u.bajado]); if (pintarUpBarra.sig === sig && !el.hidden) return; pintarUpBarra.sig = sig;
+  el.hidden = false;
+  if (u.estado === 'descargando') {
+    const det = u.total ? `${u.progreso || 0} % · ${mb(u.bajado || 0)} de ${mb(u.total)} MB` : (u.progreso != null ? (u.progreso || 0) + ' %' : '');
+    el.className = 'upbarra';
+    el.innerHTML = `<span class="ell">Bajando la versión ${esc(u.version || '')}</span><div class="bar"><div style="width:${u.progreso || 0}%"></div></div><span class="small muted">${det}</span>`;
+  } else {
+    el.className = 'upbarra lista';
+    el.innerHTML = `<span class="ell">✓ La versión ${esc(u.version)} está lista</span><button class="btn pri sm" id="upYa">Reiniciar y actualizar</button>`;
+    $('upYa').onclick = () => {
+      if (!confirm('Se cerrará todo el programa (también WhatsApp) y volverá a abrir solo con la versión nueva. ¿Seguir?')) return;
+      $('upYa').disabled = true; $('upYa').textContent = 'Reiniciando…'; POST('/api/actualizacion/instalar').catch(() => {});
+    };
+  }
 }
 
 // ---------------- Tu día (Inicio) ----------------
@@ -1251,10 +1257,10 @@ $('rSave').onclick = async () => {
 };
 function renderUp() {
   const u = EST?.actualizacion;
-  const txt = !u ? 'Las actualizaciones automáticas se activan cuando el programa esté publicado en GitHub.' : { buscando: 'Buscando actualizaciones…', descargando: `Descargando versión ${u.version || ''}${u.progreso != null ? ' · ' + u.progreso + '%' : ''}…`, lista: `Versión ${u.version} lista para instalar.`, aldia: 'Estás en la última versión.', error: 'No se pudo revisar (sin internet o sin publicar).', inactivo: 'Actualizaciones automáticas no configuradas todavía.' }[u.estado] || '';
+  const txt = !u ? 'Las actualizaciones automáticas se activan cuando el programa esté publicado en GitHub.' : { buscando: 'Buscando actualizaciones…', descargando: `Bajando la versión ${u.version || ''}${u.progreso != null ? ' · ' + u.progreso + '%' : ''}${u.tipo === 'liviana' ? ' (actualización liviana)' : ''}…`, lista: `Versión ${u.version} lista: toca «Reiniciar y actualizar».`, aldia: 'Estás en la última versión.', error: 'No se pudo revisar (sin internet o sin publicar).', inactivo: 'Actualizaciones automáticas no configuradas todavía.' }[u.estado] || '';
   $('kUp').innerHTML = `<h2>Actualizaciones</h2><div style="display:flex;align-items:center;gap:12px">${LOGO_SVG(40)}<div><b style="font-family:var(--serif);letter-spacing:.06em">CRM HERMES</b><div class="small muted">Conecta Salud</div></div></div><div class="kv"><span>Versión instalada</span><b>${esc(EST?.version || '')}</b></div><span class="small muted">${esc(txt)}</span><div style="display:flex;gap:8px">${u && u.estado === 'lista' ? '<button class="btn pri" id="uI">Reiniciar y actualizar</button>' : ''}${u && u.estado !== 'inactivo' ? '<button class="btn" id="uB">Buscar ahora</button>' : ''}</div>`;
   if ($('uB')) $('uB').onclick = async () => { await POST('/api/actualizacion/buscar'); toast('Buscando…'); setTimeout(() => { poll().then(renderUp); }, 3000); };
-  if ($('uI')) $('uI').onclick = () => { upPospuesta = null; revisarActualizacion(EST.actualizacion); };
+  if ($('uI')) $('uI').onclick = () => { if (!confirm('Se cerrará todo el programa (también WhatsApp) y volverá a abrir solo con la versión nueva. ¿Seguir?')) return; POST('/api/actualizacion/instalar').catch(() => {}); };
 }
 
 // ---------------- Leads de Meta ----------------
@@ -1500,7 +1506,7 @@ function esqueleto() {
   $('pendHoy').textContent = 'Ver tu día'; $('saludo').textContent = 'Hola';
   ['ufHoy', 'waTxt', 'hoyTxt'].forEach((id) => ($(id).textContent = '—'));
   $('waBanner').hidden = true; $('consejo').hidden = true;
-  cerrarPops(); $('upCard').hidden = true; $('bienvenida').hidden = true;
+  cerrarPops(); $('bienvenida').hidden = true;
   layout();
 }
 let pollTimer = null, refreshTimer = null;
@@ -1697,7 +1703,7 @@ aplicarTema(); setInterval(aplicarTema, 60000);
 function cerrarPops() {
   $('temaPop').hidden = true; $('bTema').classList.remove('on');
   $('buscador').hidden = true;
-  if ($('upCard').hidden && $('bienvenida').hidden) document.body.classList.remove('tapado');
+  if ($('bienvenida').hidden) document.body.classList.remove('tapado');
   syncVista(true);
 }
 function tapar() { document.body.classList.add('tapado'); syncVista(true); }
@@ -1734,7 +1740,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); abrirBuscar(); return; }
   if (e.key === 'Escape') {
     if (e.defaultPrevented) return;
-    if (!$('modal').hidden || !$('bienvenida').hidden || !$('upCard').hidden) return;
+    if (!$('modal').hidden || !$('bienvenida').hidden) return;
     if (!$('buscador').hidden || !$('temaPop').hidden) { cerrarPops(); return; }
     if (document.querySelector('.emojipop')) return;
     go('inicio'); return;

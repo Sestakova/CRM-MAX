@@ -290,15 +290,6 @@ body.en-chats .toast{right:16px;max-width:300px}
 body.tapado{}
 
 /* ---------- Actualización y bienvenida ---------- */
-.upcard{position:fixed;inset:0;z-index:90;background:rgba(47,74,60,.92);display:flex;align-items:center;justify-content:center}
-.upbox{width:min(460px,92vw);padding:34px 34px 28px;background:var(--cream);border-radius:28px;box-shadow:0 24px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:20px}
-.upbox .uhd{display:flex;align-items:center;gap:16px}
-.upbox .eyebrow{font-size:13px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--terra-d)}
-.upbox .ttl{font-family:var(--serif);font-size:27px;font-weight:600;letter-spacing:.04em;line-height:1.15}
-.upbox ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;font-size:15px;line-height:1.45}
-.upbox li{display:flex;gap:12px;align-items:flex-start}
-.upbox li svg{flex-shrink:0;margin-top:2px}
-.upbox .bar{background:var(--upbar)}
 .bienvenida{position:fixed;inset:0;z-index:95;background:var(--green);display:flex;align-items:center;justify-content:center;overflow:auto;padding:24px}
 .bvbox{width:min(760px,94vw);background:var(--cream);border-radius:30px;padding:40px 44px 34px;box-shadow:0 30px 80px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:22px;animation:entra .5s ease}
 .bvbox .ttl{font-family:var(--serif);font-size:36px;font-weight:600;letter-spacing:.06em;line-height:1.1;margin:0}
@@ -438,3 +429,10 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .docaviso .lnk{color:inherit;font-size:20px;line-height:1}
 .ventana .docaviso{top:50px}
 .ventana .fiesta.franja .fban{top:50px}
+
+/* Actualización: barrita en la barra de arriba y botón para reiniciar */
+.upbarra{display:flex;align-items:center;gap:10px;flex:0 1 430px;min-width:330px;white-space:nowrap;height:42px;padding:0 8px 0 16px;border-radius:21px;border:1px solid var(--line);background:var(--paper);font-size:13px}
+.upbarra .bar{flex:1;min-width:50px}
+.upbarra > span{flex-shrink:0}
+.upbarra.lista{border-color:var(--green);padding-right:5px}
+.upbarra.lista .btn{white-space:nowrap}

@@ -38,9 +38,10 @@ npm run build      # crea dist/Instalar-CRM-HERMES.exe, .blockmap y latest.yml
 ## Publicar una versión
 
 1. Subir `version` en `package.json` y agregar la entrada en `NOVEDADES` (public/app.js).
-2. `npm run build`.
-3. Crear la release `vX.Y.Z` en https://github.com/Sestakova/crm-max/releases/new y subir los 3 archivos de `dist/`: `Instalar-CRM-HERMES.exe`, `Instalar-CRM-HERMES.exe.blockmap`, `latest.yml`.
-4. Los programas instalados la encuentran solos (cada 4 h o Configuración → Buscar ahora) y se instalan sin ventanas desde 4.0.0.
+2. `npm run build` (también escribe `huella.json` y arma el paquete liviano).
+3. Crear la release `vX.Y.Z` en https://github.com/Sestakova/crm-max/releases/new y subir los 5 archivos de `dist/`: `Instalar-CRM-HERMES.exe`, `Instalar-CRM-HERMES.exe.blockmap`, `latest.yml`, `CRM-HERMES-liviana.gz` y `liviana.json`.
+4. Los programas instalados revisan cada 30 min (o Configuración → Buscar ahora). Si la huella coincide (no cambió Electron, ninguna dependencia ni los parches) bajan solo el paquete liviano (pocos MB); si no, el instalador completo. Una barrita arriba muestra el avance y el botón «Reiniciar y actualizar» cierra todo y vuelve a abrir.
+5. Las livianas sirven desde la 4.3.0 instalada en adelante (`arranque.js` elige entre la liviana guardada en `userData/liviana/` y la instalada; si la liviana no abre, vuelve sola a la instalada).
 
 ## Pendiente / ideas acordadas
 

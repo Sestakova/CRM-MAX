@@ -94,36 +94,76 @@ function requestQuit() {
   app.quit();
 }
 
-// ---------- Actualizaciones automáticas (GitHub Releases) ----------
-const up = { estado: 'inactivo', version: null, progreso: null };
-let autoUpdater = null;
+// ---------- Actualizaciones (GitHub Releases) ----------
+// Casi siempre llega una «liviana» (solo pantallas y .js, pocos MB, se aplica al reiniciar en segundos).
+// Si cambió Electron, una dependencia o un parche, se baja el instalador completo como antes.
+const LIV = require('./liviana');
+const up = { estado: 'inactivo', version: null, progreso: null, bajado: null, total: null, tipo: null };
+let autoUpdater = null, baseLiviana = null;
+const miHuella = (() => { try { return require('./huella.json').huella; } catch { return null; } })();
 function initUpdater() {
   const repo = String(PKG.updateRepo || '').trim();      // "usuario/repositorio"
-  if (!app.isPackaged || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return;
-  ({ autoUpdater } = require('electron-updater'));
-  const [owner, name] = repo.split('/');
-  autoUpdater.setFeedURL({ provider: 'github', owner, repo: name });
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('checking-for-update', () => { up.estado = 'buscando'; });
-  autoUpdater.on('update-available', (i) => { up.estado = 'descargando'; up.version = i.version; });
-  autoUpdater.on('update-not-available', () => { up.estado = 'aldia'; });
-  autoUpdater.on('download-progress', (p) => { up.progreso = Math.round(p.percent); });
-  autoUpdater.on('update-downloaded', (i) => {
-    up.estado = 'lista'; up.version = i.version; up.progreso = null;
-    notify('Actualización lista', `CRM HERMES ${i.version} está lista. Ábrelo y toca "Actualizar ahora".`);
-  });
-  autoUpdater.on('error', () => { up.estado = 'error'; });
+  // En desarrollo se puede probar con un servidor local: CRM_LIVIANA_URL=http://127.0.0.1:puerto/
+  if (!app.isPackaged) baseLiviana = process.env.CRM_LIVIANA_URL || null;
+  else if (/^[\w.-]+\/[\w.-]+$/.test(repo)) baseLiviana = `https://github.com/${repo}/releases/latest/download/`;
+  if (!baseLiviana) return;
+  if (app.isPackaged) {
+    ({ autoUpdater } = require('electron-updater'));
+    const [owner, name] = repo.split('/');
+    autoUpdater.setFeedURL({ provider: 'github', owner, repo: name });
+    autoUpdater.autoDownload = false;          // se decide aquí si conviene la liviana o el instalador completo
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('download-progress', (p) => { up.progreso = Math.round(p.percent); up.bajado = p.transferred; up.total = p.total; });
+    autoUpdater.on('update-downloaded', (i) => {
+      Object.assign(up, { estado: 'lista', version: i.version, progreso: 100, tipo: 'completa' });
+      notify('Actualización lista', `CRM HERMES ${i.version} está lista. Toca «Reiniciar y actualizar».`);
+    });
+    autoUpdater.on('error', () => { if (up.tipo === 'completa' && up.estado === 'descargando') up.estado = 'error'; });
+  }
+  setTimeout(buscarActualizacion, 20000);
+  setInterval(buscarActualizacion, 30 * 60000);
+}
+async function buscarActualizacion() {
+  if (!baseLiviana || ['buscando', 'descargando', 'lista'].includes(up.estado)) return;
   up.estado = 'buscando';
-  const buscar = () => autoUpdater.checkForUpdates().catch(() => { up.estado = 'error'; });
-  setTimeout(buscar, 20000);
-  setInterval(buscar, 4 * 3600000);
+  try {
+    const liviana = await fetch(baseLiviana + 'liviana.json', { signal: AbortSignal.timeout(20000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    let completa = null;
+    if (autoUpdater) { const r = await autoUpdater.checkForUpdates().catch(() => null); if (r && r.updateInfo) completa = { version: r.updateInfo.version }; }
+    const cual = LIV.elegirDescarga({ efectiva: VERSION, huella: miHuella, liviana, completa });
+    if (cual === 'liviana') await bajarLiviana(liviana);
+    else if (cual === 'completa') { Object.assign(up, { estado: 'descargando', version: completa.version, progreso: 0, bajado: 0, total: null, tipo: 'completa' }); autoUpdater.downloadUpdate().catch(() => { up.estado = 'error'; }); }
+    else up.estado = 'aldia';
+  } catch (e) { console.error('actualización:', e); up.estado = 'error'; }
+}
+// Baja el paquete mostrando el avance, revisa que llegó entero y lo deja listo para el próximo arranque
+async function bajarLiviana(d) {
+  Object.assign(up, { estado: 'descargando', version: d.version, progreso: 0, bajado: 0, total: d.tam || null, tipo: 'liviana' });
+  const r = await fetch(baseLiviana + d.archivo, { signal: AbortSignal.timeout(10 * 60000) });
+  if (!r.ok) throw new Error('No se pudo bajar la versión ' + d.version);
+  up.total = Number(r.headers.get('content-length')) || d.tam || null;
+  const partes = [], lector = r.body.getReader();
+  for (;;) {
+    const { done, value } = await lector.read(); if (done) break;
+    partes.push(Buffer.from(value)); up.bajado += value.length;
+    if (up.total) up.progreso = Math.min(99, Math.round((up.bajado / up.total) * 100));
+  }
+  const buf = Buffer.concat(partes);
+  if (!LIV.verificar(buf, d.sha512)) throw new Error('El paquete de la versión ' + d.version + ' llegó dañado');
+  LIV.aplicar(app.getPath('userData'), { version: d.version, huella: d.huella }, LIV.desempaquetar(buf));
+  Object.assign(up, { estado: 'lista', progreso: 100 });
+  notify('Actualización lista', `CRM HERMES ${d.version} está lista. Toca «Reiniciar y actualizar».`);
 }
 const updater = {
   estado: () => ({ ...up }),
-  buscar: () => { if (autoUpdater) autoUpdater.checkForUpdates().catch(() => { up.estado = 'error'; }); },
-  // Instalación silenciosa: sin ventanas del instalador, y el programa vuelve a abrir solo
-  instalar: () => { if (autoUpdater && up.estado === 'lista') { quitting = true; setImmediate(() => autoUpdater.quitAndInstall(true, true)); } }
+  buscar: () => { if (up.estado === 'error' || up.estado === 'aldia') up.estado = 'inactivo'; buscarActualizacion(); },
+  // Se cierra todo el programa (también la bandeja y WhatsApp) y vuelve a abrir solo con la versión nueva
+  instalar: () => {
+    if (up.estado !== 'lista') return;
+    quitting = true;
+    if (up.tipo === 'completa' && autoUpdater) setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    else { app.relaunch(); app.quit(); }
+  }
 };
 
 // ---------- Avisos de Windows ----------
