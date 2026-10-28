@@ -8,6 +8,8 @@ const fs = require('fs');
 // así se conservan la sesión de WhatsApp, contactos, chats y la conexión con Meta.
 app.setPath('userData', path.join(app.getPath('appData'), 'Enviador WhatsApp'));
 const NOMBRE = 'CRM HERMES';
+// Versión que corre: la liviana si arranque.js abrió una, si no la instalada
+const VERSION = global.CRM_VERSION || app.getVersion();
 // WhatsApp Web vive dentro del programa. La parte automática se conecta a esa misma vista (solo desde este PC).
 app.commandLine.appendSwitch('remote-debugging-port', '0');
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
@@ -187,7 +189,7 @@ app.whenReady().then(async () => {
   }
   const docs = { raiz: raizDocs, descargas: () => app.getPath('downloads'), abrir: (p) => shell.openPath(p) };
 
-  srv = await require('./server').start({ dataDir, browserPaths, version: app.getVersion(), notify, updater, embebido, docs });
+  srv = await require('./server').start({ dataDir, browserPaths, version: VERSION, notify, updater, embebido, docs });
 
   // Lo que se descarga desde un chat de WhatsApp va a la carpeta de ese cliente (sin cliente del CRM: «Sin asignar»).
   // Se guarda primero aparte y al terminar se mueve, porque saber qué chat está abierto toma un momento
@@ -224,10 +226,12 @@ app.whenReady().then(async () => {
     titleBarStyle: 'hidden', titleBarOverlay: { ...TEMAS.BARRA[temaIni], height: 36 },
     icon: ICONO, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true }
   });
-  const titulo = `${NOMBRE} · versión ${app.getVersion()}`;
+  const titulo = `${NOMBRE} · versión ${VERSION}`;
   win.setTitle(titulo);
   win.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle(titulo); });
   win.loadURL(`http://127.0.0.1:${srv.port}`);
+  // Si esta versión vino como actualización liviana, abrió bien: ya no hace falta volver a la instalada
+  win.webContents.once('did-finish-load', () => require('./liviana').marcarOk(app.getPath('userData')));
   win.contentView.addChildView(waView);
   // La pantalla del CRM dice dónde y cuándo mostrar WhatsApp (se oculta con el PIN, modales y otras secciones)
   ipcMain.on('wa-vista', (e, r) => {
