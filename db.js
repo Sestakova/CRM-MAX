@@ -82,7 +82,8 @@ const DEFAULTS = {
     avisoMin: 10,
     aviso: { on: true }
   },
-  estancado: { dias: 5 }
+  estancado: { dias: 5 },
+  siete: { topeUF: 90 }   // tope imponible para el 7% de salud (se cambia en Configuración)
 };
 
 async function openDb(dataDir) {

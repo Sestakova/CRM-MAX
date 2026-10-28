@@ -598,20 +598,21 @@ function revisarProgramados() {
     evento({ estado: 'programado', detalle: `"${p.nombre || 'Envío programado'}" pasó a la cola (${p.destinatarios.length} contactos)` });
   }
 }
+// UF: la del día 5 de cada mes queda fija hasta el 5 siguiente (la que se usa para el 7%)
+const UF = require('./uf');
 let uf = db.getConfig('uf', null);
+if (uf && !uf.vigente) uf = null;   // formato de antes de 4.3.0 (UF de cada día): se vuelve a pedir
 async function actualizarUF() {
-  if (uf && Date.now() - new Date(uf.consultado) < 6 * 3600000 && uf.hoy?.fecha?.slice(0, 10) === new Date().toISOString().slice(0, 10)) return;
+  if (uf && !UF.necesitaUF(uf.vigente)) return;
+  const fecha = UF.fechaUFVigente();
   try {
-    const r = await fetch('https://mindicador.cl/api/uf', { signal: AbortSignal.timeout(15000) });
+    const r = await fetch(UF.urlUF(fecha), { signal: AbortSignal.timeout(15000) });
     const j = await r.json();
-    const serie = (j.serie || []).map((x) => ({ fecha: x.fecha, valor: x.valor }));
-    if (!serie.length) return;
-    const hoy = serie[0];
-    const mes = hoy.fecha.slice(0, 7);
-    const primero = serie.find((x) => x.fecha.slice(0, 10) === mes + '-01') || null;
-    uf = { hoy, primero, consultado: new Date().toISOString() };
+    const x = (j.serie || [])[0];
+    if (!x || !(x.valor > 0)) throw new Error('aún no publican la UF del ' + fecha);
+    uf = { vigente: { fecha, valor: x.valor }, consultado: new Date().toISOString() };
     db.setConfig('uf', uf);
-  } catch (e) { log('UF: ' + e.message); clearTimeout(actualizarUF._t); actualizarUF._t = setTimeout(actualizarUF, 5 * 60000); }   // sin internet: reintenta en 5 min
+  } catch (e) { log('UF: ' + e.message); clearTimeout(actualizarUF._t); actualizarUF._t = setTimeout(actualizarUF, 5 * 60000); }   // sin internet: sigue con la última y reintenta en 5 min
 }
 function revisarAgendados() {
   for (const a of db.agendadosVencidos()) {
@@ -1249,7 +1250,7 @@ app.post('/api/chats/:tel', async (req, res) => {
 });
 
 // Configuración
-const EDITABLES = ['reglas', 'secuencia', 'fueraHorario', 'avisos', 'apariencia', 'ui', 'llamadas', 'estancado'];
+const EDITABLES = ['reglas', 'secuencia', 'fueraHorario', 'avisos', 'apariencia', 'ui', 'llamadas', 'estancado', 'siete'];
 app.get('/api/config', (req, res) => res.json(Object.fromEntries([...EDITABLES.map((k) => [k, db.getConfig(k)]), ['etapas', ETAPAS]])));
 app.put('/api/config/:clave', (req, res) => {
   const k = req.params.clave;
@@ -1257,7 +1258,7 @@ app.put('/api/config/:clave', (req, res) => {
   const libre = k === 'ui', auto = ['secuencia', 'fueraHorario', 'llamadas'].includes(k);
   if (!libre && !req.esAdmin && !(auto && req.permisos.automaticos)) return fail(res, 'Solo el administrador puede cambiar esto', 403);
   db.setConfig(k, req.body.valor);
-  const NOM = { reglas: 'las reglas de envío', secuencia: 'los mensajes automáticos', fueraHorario: 'la respuesta fuera de horario', avisos: 'los avisos', apariencia: 'la apariencia', llamadas: 'los mensajes de llamadas', estancado: 'los días para lead estancado' };
+  const NOM = { reglas: 'las reglas de envío', secuencia: 'los mensajes automáticos', fueraHorario: 'la respuesta fuera de horario', avisos: 'los avisos', apariencia: 'la apariencia', llamadas: 'los mensajes de llamadas', siete: 'el tope imponible del 7%', estancado: 'los días para lead estancado' };
   if (!libre) act(req, 'Cambió ' + (NOM[k] || k));
   ok(res);
 });

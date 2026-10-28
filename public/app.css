@@ -395,3 +395,9 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .eqit .chip.on{outline:2px solid var(--terra);outline-offset:1px}
 .eqcol{width:28px;height:28px;border-radius:50%;border:2px solid transparent}
 .eqcol.on{border-color:var(--text)}
+
+/* 7% de salud en la ficha */
+.siete{display:flex;flex-direction:column;gap:2px;margin:4px 0 2px;padding:10px 12px;border-radius:12px;background:var(--sand)}
+.siete b{font-size:17px}
+.siete b .muted{font-size:13px;font-weight:500}
+.siete .tope{display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;background:var(--paper);font-size:11px}

@@ -93,6 +93,16 @@ async function etiquetaModal(tel, nombre, listo) {
     pintar(box);
   }, () => { loadPipeline.sig = ''; if (listo) listo(); });
 }
+// 7% de salud con la UF del día 5 y el tope imponible (Configuración)
+const fechaUF = (f) => { const [y, m, d] = String(f).slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' }); };
+function sieteDe(renta) {
+  const v = EST && EST.uf && EST.uf.vigente ? EST.uf.vigente.valor : 0, tope = (CFG && CFG.siete && +CFG.siete.topeUF) || 90;
+  const r = parseInt(String(renta || '').replace(/\D/g, ''), 10);
+  if (!(r > 0) || !(v > 0)) return null;
+  const base = Math.min(r, tope * v), pesos = Math.round(base * 0.07);
+  return { pesos, uf: Math.round((pesos / v) * 100) / 100, conTope: r > tope * v, tope };
+}
+const sieteHTML = (renta) => { const x = sieteDe(renta); if (!x) return ''; return `<div class="siete"><span class="small muted">Su 7%${x.conTope ? ` <span class="tope">tope ${x.tope} UF</span>` : ''}</span><b>${money(x.pesos)} <span class="muted">· ${x.uf.toLocaleString('es-CL')} UF</span></b>${x.conTope ? `<span class="small muted">Su renta pasa el tope: se calcula sobre ${x.tope} UF.</span>` : ''}</div>`; };
 const califPill = (c) => c === 'Calificado' ? 'p-info' : c === 'Posible prospecto' ? 'p-warn' : c === 'No calificado' ? 'p-mut' : 'p-mut';
 let CFG = null, EST = null, YO = null;
 const UI = {};
@@ -244,9 +254,9 @@ async function poll() {
     $('waTxt').textContent = WA_TXT[w.state] || w.state;
     $('hoyTxt').textContent = `· ${s.cola.enviadosHoy}/${s.cola.limite} hoy`;
     $('bEstado').title = (w.me ? fmtTel(w.me) + ' · ' : '') + `Enviados hoy: ${s.cola.enviadosHoy} de ${s.cola.limite}`;
-    if (s.uf && s.uf.hoy) {
-      $('ufHoy').textContent = '$' + s.uf.hoy.valor.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      $('ufCard').title = 'UF del ' + new Date(s.uf.hoy.fecha).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', timeZone: 'UTC' }) + (s.uf.primero ? ' · 1° del mes: $' + s.uf.primero.valor.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    if (s.uf && s.uf.vigente) {
+      $('ufHoy').textContent = '$' + s.uf.vigente.valor.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      $('ufCard').title = 'UF del ' + fechaUF(s.uf.vigente.fecha) + ' · se actualiza el 5 de cada mes';
     } else { $('ufHoy').textContent = 'sin conexión'; $('ufCard').title = 'Se actualiza al tener internet'; }
     const showWa = w.state !== 'listo' && !['config', 'chats'].includes(current);
     $('waBanner').hidden = !showWa;
@@ -474,7 +484,7 @@ function pintarFicha(d) {
     const seq = c.seq_estado === 'activa' ? `En curso · paso ${Math.min(c.seq_paso || 1, 3)} de 3` : c.seq_estado === 'detenida' ? 'Detenida: ' + (c.seq_motivo || '') : c.seq_estado === 'terminada' ? 'Terminada' : 'Sin secuencia';
     f.innerHTML = `<h2 class="fh">Ficha del lead</h2>
       ${bloqueProx}
-      ${[['Nombre', [c.nombre, c.apellido].filter(Boolean).join(' ')], ['Edad', c.edadActual ? c.edadActual + ' años' : ''], ['Renta', c.renta ? money(c.renta) : ''], ['Cargas', c.cargas], ['Isapre/Fonasa', c.isapre]].map(([k, v]) => `<div class="kv"><span>${k}</span><b style="text-align:right">${esc(v || '—')}</b></div>`).join('')}
+      ${[['Nombre', [c.nombre, c.apellido].filter(Boolean).join(' ')], ['Edad', c.edadActual ? c.edadActual + ' años' : ''], ['Renta', c.renta ? money(c.renta) : ''], ['Cargas', c.cargas], ['Isapre/Fonasa', c.isapre]].map(([k, v]) => `<div class="kv"><span>${k}</span><b style="text-align:right">${esc(v || '—')}</b></div>`).join('')}${sieteHTML(c.renta)}
       ${c.estancado ? `<div class="kv"><span>En esta etapa</span><b style="color:var(--warn)">${c.diasEtapa} días · estancado</b></div>` : ''}
       <div class="fsec"><span class="small muted" style="font-weight:700">Calificación</span><div class="chips">${CALIF.map((x) => `<button class="chip ${x === c.calificacion ? 'on' : ''}" data-cal="${x}">${x}</button>`).join('')}</div></div>
       <div class="fsec"><span class="small muted" style="font-weight:700">Etiquetas</span><div class="chips etqs">${(c.etiquetas || []).map((e) => chipEtq(e, true)).join('')}<button type="button" class="etqmas" id="fEtq">+ etiqueta</button></div></div>
@@ -1190,7 +1200,15 @@ async function loadConfig() {
   const r = CFG.reglas, H = [['lv', 'Lunes a viernes'], ['sab', 'Sábado'], ['dom', 'Domingo']];
   $('rHor').innerHTML = H.map(([k, n]) => `<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" data-hon="${k}" ${r.horario[k].on ? 'checked' : ''} aria-label="${n} activo"><span style="width:120px;font-weight:600;font-size:14px">${n}</span><input type="text" data-hd="${k}" value="${r.horario[k].desde}" style="width:72px" aria-label="Desde"><span class="muted">a</span><input type="text" data-hh="${k}" value="${r.horario[k].hasta}" style="width:72px" aria-label="Hasta"></div>`).join('');
   $('rLim').value = r.limiteDiario; $('rMin').value = r.esperaMin; $('rMax').value = r.esperaMax; $('rCada').value = r.descansoCada; $('rDesc').value = r.descansoMin;
-  renderUp(); pintarTemasConfig();
+  renderUp(); pintarTemasConfig(); pintarSiete();
+}
+// Configuración del 7%: UF vigente (del día 5) y tope imponible
+function pintarSiete() {
+  const u = EST && EST.uf && EST.uf.vigente;
+  const prox = (() => { const h = new Date(); const d = new Date(h.getFullYear(), h.getMonth() + (h.getDate() >= 5 ? 1 : 0), 5); return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' }); })();
+  $('kSiete').innerHTML = `<h2>Cálculo del 7%</h2><div class="kv"><span>UF vigente</span><b>${u ? '$' + u.valor.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' <span class="small muted">(del ' + fechaUF(u.fecha) + ')</span>' : 'sin conexión'}</b></div><div class="kv"><span>Próxima actualización</span><b>${prox}</b></div><label class="check">Tope imponible (UF)<input type="number" id="sTope" min="1" max="500" step="0.1" style="width:100px"></label><span class="small muted">Si la renta pasa el tope, el 7% se calcula sobre el tope.</span>`;
+  $('sTope').value = (CFG.siete && CFG.siete.topeUF) || 90;
+  $('sTope').onchange = async () => { const n = Math.round(Math.max(1, Math.min(500, parseFloat(String($('sTope').value).replace(',', '.')) || 90)) * 10) / 10; $('sTope').value = n; CFG.siete = { topeUF: n }; await PUT('/api/config/siete', { valor: CFG.siete }); toast(`Tope imponible: ${n} UF`); };
 }
 function renderWaCard(force) {
   if (!EST) return; const w = EST.wa;
