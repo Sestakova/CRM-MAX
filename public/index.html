@@ -81,7 +81,11 @@
       <label class="f">Calificación<select id="pCal"><option value="">Todas</option><option>Calificado</option><option>Posible prospecto</option><option>No calificado</option><option>Sin calificar</option></select></label>
       <label class="f">Isapre/Fonasa<select id="pIsa"><option value="">Todas</option></select></label>
       <label class="f">Buscar<input type="search" id="pQ" placeholder="Nombre o teléfono" style="width:220px"></label>
+      <label class="f">Etiqueta<select id="pEtq"><option value="">Todas</option></select></label>
       <label class="check" style="gap:8px;align-self:center;margin-top:18px"><input type="checkbox" id="pEst"><span>Solo estancados</span></label>
+      <label class="f">Filtros guardados<select id="pFil"><option value="">—</option></select></label>
+      <button class="btn sm" id="pFilG" type="button" style="align-self:flex-end;margin-bottom:4px" title="Guarda la combinación de filtros de ahora con un nombre">Guardar filtro</button>
+      <button class="btn sm" id="pFilX" type="button" hidden style="align-self:flex-end;margin-bottom:4px">Borrar filtro</button>
       <span class="grow"></span>
       <span class="small muted" id="pLeyenda" style="align-self:center"></span>
       <button class="btn" id="pDup" hidden>Contactos repetidos</button>
@@ -123,6 +127,7 @@
             <label class="f">Edad desde<input type="number" id="sEMin" min="0"></label>
             <label class="f">Edad hasta<input type="number" id="sEMax" min="0"></label>
             <label class="f">Renta desde ($)<input type="number" id="sRMin" min="0" step="50000"></label>
+            <label class="f">Etiqueta<select id="sEtq"><option value="">Todas</option></select></label>
           </div>
           <span class="small muted">Siempre se excluyen quienes pidieron BAJA y los números sin WhatsApp.</span>
         </div>

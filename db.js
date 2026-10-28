@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS programados (
   id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, texto TEXT, destinatarios TEXT,
   fecha TEXT, secuencia INTEGER DEFAULT 0, estado TEXT DEFAULT 'pendiente', creado TEXT
 );
+CREATE TABLE IF NOT EXISTS etiquetas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT UNIQUE COLLATE NOCASE, color TEXT, creada TEXT);
+CREATE TABLE IF NOT EXISTS contacto_etiquetas (telefono TEXT, etiqueta_id INTEGER, PRIMARY KEY (telefono, etiqueta_id));
 CREATE TABLE IF NOT EXISTS adjuntos (id TEXT PRIMARY KEY, nombre TEXT, mime TEXT, tam INTEGER, archivo TEXT, creado TEXT);
 CREATE TABLE IF NOT EXISTS llamadas (
   id INTEGER PRIMARY KEY AUTOINCREMENT, telefono TEXT, fecha TEXT, estado TEXT DEFAULT 'pendiente',
@@ -214,7 +216,7 @@ async function openDb(dataDir) {
       return api.contacto(tel);
     },
     moverEtapaSi: (tel, desde, hacia) => run('UPDATE contactos SET etapa = ?, actualizado = ?, etapa_fecha = ? WHERE telefono = ? AND etapa IN (' + desde.map(() => '?').join(',') + ')', [hacia, now(), now(), tel, ...desde]),
-    eliminarContacto: (tel) => run('DELETE FROM contactos WHERE telefono = ?', [tel]),
+    eliminarContacto: (tel) => { run('DELETE FROM contacto_etiquetas WHERE telefono = ?', [tel]); run('DELETE FROM contactos WHERE telefono = ?', [tel]); },
     buscarContactos: (f = {}) => {
       const w = [], p = [];
       if (f.etapa) { const e = [].concat(f.etapa); w.push(`etapa IN (${e.map(() => '?').join(',')})`); p.push(...e); }
@@ -227,6 +229,7 @@ async function openDb(dataDir) {
       if (f.edadMax) { w.push('edad <= ?'); p.push(parseInt(f.edadMax)); }
       if (f.q) { const dig = f.q.replace(/\D/g, ''); if (dig.length >= 3) { w.push("(LOWER(IFNULL(nombre,'') || ' ' || IFNULL(apellido,'')) LIKE ? OR telefono LIKE ?)"); p.push('%' + f.q.toLowerCase() + '%', '%' + dig + '%'); } else { w.push("LOWER(IFNULL(nombre,'') || ' ' || IFNULL(apellido,'')) LIKE ?"); p.push('%' + f.q.toLowerCase().trim() + '%'); } }
       if (f.sinBajas) w.push('telefono NOT IN (SELECT telefono FROM bajas)');
+      if (f.etiqueta) { w.push('telefono IN (SELECT telefono FROM contacto_etiquetas WHERE etiqueta_id = ?)'); p.push(parseInt(f.etiqueta)); }
       return all(`SELECT * FROM contactos ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY actualizado DESC LIMIT ${parseInt(f.limite) || 5000}`, p);
     },
     isapres: () => all("SELECT DISTINCT isapre FROM contactos WHERE isapre IS NOT NULL AND isapre <> '' ORDER BY isapre").map((r) => r.isapre),
@@ -305,6 +308,19 @@ async function openDb(dataDir) {
     leadsMetaDesde: (iso) => get('SELECT COUNT(*) AS n FROM leads_meta WHERE creado >= ?', [iso]).n,
     nombreWa: (tel) => (get('SELECT nombre FROM nombres_wa WHERE telefono = ?', [tel]) || {}).nombre || '',
     mensajes: (tel, limite = 400) => all('SELECT * FROM (SELECT * FROM mensajes WHERE telefono = ? ORDER BY fecha DESC, id DESC LIMIT ?) ORDER BY fecha ASC, id ASC', [tel, limite]),
+    // ---------- etiquetas propias (color = clave de la paleta et1…et6)
+    etiquetas: () => all('SELECT e.id, e.nombre, e.color, (SELECT COUNT(*) FROM contacto_etiquetas x WHERE x.etiqueta_id = e.id) AS usos FROM etiquetas e ORDER BY e.nombre COLLATE NOCASE'),
+    crearEtiqueta: (nombre, color) => {
+      const n = txt(nombre).slice(0, 40); if (!n) return null;
+      const ya = get('SELECT id FROM etiquetas WHERE nombre = ? COLLATE NOCASE', [n]); if (ya) return ya.id;
+      run('INSERT INTO etiquetas (nombre, color, creada) VALUES (?, ?, ?)', [n, /^et[1-6]$/.test(color) ? color : 'et1', now()]); return lastId();
+    },
+    borrarEtiqueta: (id) => { run('DELETE FROM contacto_etiquetas WHERE etiqueta_id = ?', [id]); run('DELETE FROM etiquetas WHERE id = ?', [id]); },
+    ponerEtiqueta: (tel, id) => run('INSERT OR IGNORE INTO contacto_etiquetas (telefono, etiqueta_id) SELECT ?, id FROM etiquetas WHERE id = ?', [tel, id]),
+    quitarEtiqueta: (tel, id) => run('DELETE FROM contacto_etiquetas WHERE telefono = ? AND etiqueta_id = ?', [tel, id]),
+    etiquetasDe: (tel) => all('SELECT e.id, e.nombre, e.color FROM contacto_etiquetas x JOIN etiquetas e ON e.id = x.etiqueta_id WHERE x.telefono = ? ORDER BY e.nombre COLLATE NOCASE', [tel]),
+    etiquetasPorContacto: () => { const m = {}; for (const r of all('SELECT x.telefono, e.id, e.nombre, e.color FROM contacto_etiquetas x JOIN etiquetas e ON e.id = x.etiqueta_id ORDER BY e.nombre COLLATE NOCASE')) (m[r.telefono] = m[r.telefono] || []).push({ id: r.id, nombre: r.nombre, color: r.color }); return m; },
+    pasarEtiquetas: (de, a) => { run('INSERT OR IGNORE INTO contacto_etiquetas (telefono, etiqueta_id) SELECT ?, etiqueta_id FROM contacto_etiquetas WHERE telefono = ?', [a, de]); run('DELETE FROM contacto_etiquetas WHERE telefono = ?', [de]); },
     // ---------- recordatorios
     crearRecordatorio: (tel, fecha, texto, llamadaId = null) => { run('INSERT INTO recordatorios (telefono, fecha, texto, creado, llamada_id) VALUES (?, ?, ?, ?, ?)', [tel, fecha, texto, now(), llamadaId]); return lastId(); },
     // Próxima acción de cada lead: el recordatorio pendiente más cercano (las llamadas también crean uno)

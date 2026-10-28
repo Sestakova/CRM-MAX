@@ -665,10 +665,11 @@ const ETAPAS_VIVAS = ['Contactado', 'Respondió', 'Cotización enviada', 'Firma/
 const CONVERSANDO = ['Respondió', 'Cotización enviada', 'Firma/documentos'];
 function enriquecer(lista) {
   const prox = db.proximasAcciones(); const lim = Math.max(1, parseInt(db.getConfig('estancado').dias) || 5);
+  const etq = db.etiquetasPorContacto();
   return lista.map((c) => {
     const p = prox[c.telefono]; const et = c.etapa || 'Nuevo';
     const dias = c.etapa_fecha ? Math.max(0, Math.floor((Date.now() - new Date(c.etapa_fecha)) / 86400000)) : 0;
-    return { ...c, edadActual: edadActual(c), diasEtapa: dias,
+    return { ...c, edadActual: edadActual(c), diasEtapa: dias, etiquetas: etq[c.telefono] || [],
       prox: p ? { fecha: p.fecha, texto: p.texto, llamada: !!p.llamada_id } : c.seq_estado === 'activa' ? { seguimiento: true } : null,
       estancado: ETAPAS_VIVAS.includes(et) && dias >= lim, sinProx: CONVERSANDO.includes(et) && !p && c.seq_estado !== 'activa' };
   });
@@ -701,6 +702,7 @@ function unirContactos(queda, sale) {
   if (sets.length) db.run(`UPDATE contactos SET ${sets.join(', ')}, actualizado = ? WHERE telefono = ?`, [...vals, new Date().toISOString(), queda]);
   db.run('UPDATE recordatorios SET telefono = ? WHERE telefono = ?', [queda, sale]);
   db.run('UPDATE llamadas SET telefono = ? WHERE telefono = ?', [queda, sale]);
+  db.pasarEtiquetas(sale, queda);
   db.eliminarContacto(sale);
 }
 
@@ -1001,6 +1003,12 @@ app.post('/api/contactos', (req, res) => {
   const nuevo = db.guardarContacto({ ...req.body, telefono: tel, origen: req.body.origen || 'manual' }, { sobrescribir: !!req.body.sobrescribir });
   ok(res, { nuevo, contacto: db.contacto(tel) });
 });
+// Etiquetas propias
+app.get('/api/etiquetas', (req, res) => res.json({ etiquetas: db.etiquetas() }));
+app.post('/api/etiquetas', (req, res) => { const id = db.crearEtiqueta((req.body || {}).nombre, (req.body || {}).color); if (!id) return fail(res, 'Escribe un nombre para la etiqueta'); ok(res, { id }); });
+app.delete('/api/etiquetas/:id', (req, res) => { db.borrarEtiqueta(parseInt(req.params.id)); act(req, 'Borró una etiqueta'); ok(res); });
+app.post('/api/contactos/:tel/etiquetas', (req, res) => { if (!db.contacto(req.params.tel)) return fail(res, 'No existe', 404); db.ponerEtiqueta(req.params.tel, parseInt((req.body || {}).id)); ok(res); });
+app.delete('/api/contactos/:tel/etiquetas/:id', (req, res) => { db.quitarEtiqueta(req.params.tel, parseInt(req.params.id)); ok(res); });
 app.patch('/api/contactos/:tel', (req, res) => {
   const antes = db.contacto(req.params.tel);
   const c = db.actualizarContacto(req.params.tel, { ...req.body, _manual: true });

@@ -63,6 +63,36 @@ const ETAPAS = ['Nuevo', 'Contactado', 'Respondió', 'Cotización enviada', 'Fir
 const COL = ['#5E7A6B', '#3F6E8C', '#7A5C8E', '#B4472C', '#9C4A6B', '#2F6B4A', '#8A2E25'];
 const CALIF = ['Calificado', 'Posible prospecto', 'No calificado'];
 const MOTIVOS = ['No contesta', 'No calificado', 'Precio', 'Se quedó en su Isapre'];
+// Etiquetas propias: chips de colores (la clave et1…et6 elige el color en cada tema)
+const ETQ_COLORES = ['et1', 'et2', 'et3', 'et4', 'et5', 'et6'];
+const chipEtq = (e, quitar) => `<span class="etqc c-${/^et[1-6]$/.test(e.color) ? e.color : 'et1'}">${esc(e.nombre)}${quitar ? `<button type="button" data-qetq="${e.id}" aria-label="Quitar ${esc(e.nombre)}">×</button>` : ''}</span>`;
+let ETQS = [];
+async function cargarEtiquetas() {
+  ETQS = (await GET('/api/etiquetas').catch(() => ({ etiquetas: [] }))).etiquetas;
+  for (const id of ['pEtq', 'sEtq']) { const s = $(id); if (!s) continue; const v = s.value; s.innerHTML = '<option value="">Todas</option>' + ETQS.map((e) => `<option value="${e.id}" ${String(e.id) === v ? 'selected' : ''}>${esc(e.nombre)}</option>`).join(''); }
+  return ETQS;
+}
+// Poner o sacar etiquetas a un contacto, crear nuevas y borrar las que ya no se usan
+async function etiquetaModal(tel, nombre, listo) {
+  const pintar = async (box) => {
+    await cargarEtiquetas();
+    const mias = new Set((await GET('/api/contactos?limite=1&q=' + tel).catch(() => ({ contactos: [] }))).contactos.filter((c) => c.telefono === tel).flatMap((c) => (c.etiquetas || []).map((e) => e.id)));
+    box.querySelector('#eqLista').innerHTML = ETQS.length ? ETQS.map((e) => `<span class="eqit"><button type="button" class="chip ${mias.has(e.id) ? 'on' : ''}" data-eqt="${e.id}" aria-pressed="${mias.has(e.id)}">${chipEtq(e)}</button><button type="button" class="lnk small" data-eqb="${e.id}" title="Borrar esta etiqueta de todos los contactos">borrar</button></span>`).join('') : '<span class="small muted">Todavía no tienes etiquetas. Crea la primera abajo.</span>';
+    box.querySelectorAll('[data-eqt]').forEach((b) => (b.onclick = async () => { const id = b.dataset.eqt; await (mias.has(+id) ? DEL(`/api/contactos/${tel}/etiquetas/${id}`) : POST(`/api/contactos/${tel}/etiquetas`, { id: +id })).catch((e) => toast(e.message)); pintar(box); }));
+    box.querySelectorAll('[data-eqb]').forEach((b) => (b.onclick = async () => { const e = ETQS.find((x) => x.id === +b.dataset.eqb); if (!confirm(`¿Borrar la etiqueta «${e.nombre}»? Se quita de ${e.usos} contacto${e.usos === 1 ? '' : 's'}.`)) return; await DEL('/api/etiquetas/' + e.id).catch(() => {}); pintar(box); }));
+  };
+  modal(`<span class="eyebrow">Etiquetas</span><h3>${esc(nombre)}</h3><span class="small muted">Toca una etiqueta para ponerla o sacarla.</span><div class="chips" id="eqLista"></div>
+    <div class="glass card" style="padding:14px;gap:10px"><b>Nueva etiqueta</b><input id="eqNom" maxlength="40" placeholder="Ej: 2 cargas, embarazo, Fonasa → Isapre"><div class="chips" id="eqCol">${ETQ_COLORES.map((c, i) => `<button type="button" class="eqcol c-${c} ${i ? '' : 'on'}" data-c="${c}" aria-label="Color ${i + 1}"></button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn" id="eqCrear">Crear y poner</button></div></div>
+    <div style="display:flex;justify-content:flex-end"><button class="btn pri" data-close>Listo</button></div>`, (box) => {
+    let color = 'et1';
+    box.querySelectorAll('[data-c]').forEach((b) => (b.onclick = () => { color = b.dataset.c; box.querySelectorAll('[data-c]').forEach((x) => x.classList.toggle('on', x === b)); }));
+    box.querySelector('#eqCrear').onclick = async () => {
+      try { const r = await POST('/api/etiquetas', { nombre: box.querySelector('#eqNom').value, color }); await POST(`/api/contactos/${tel}/etiquetas`, { id: r.id }); box.querySelector('#eqNom').value = ''; pintar(box); } catch (e) { toast(e.message); }
+    };
+    box.querySelector('#eqNom').onkeydown = (e) => { if (e.key === 'Enter') box.querySelector('#eqCrear').click(); };
+    pintar(box);
+  }, () => { loadPipeline.sig = ''; if (listo) listo(); });
+}
 const califPill = (c) => c === 'Calificado' ? 'p-info' : c === 'Posible prospecto' ? 'p-warn' : c === 'No calificado' ? 'p-mut' : 'p-mut';
 let CFG = null, EST = null, YO = null;
 const UI = {};
@@ -447,12 +477,15 @@ function pintarFicha(d) {
       ${[['Nombre', [c.nombre, c.apellido].filter(Boolean).join(' ')], ['Edad', c.edadActual ? c.edadActual + ' años' : ''], ['Renta', c.renta ? money(c.renta) : ''], ['Cargas', c.cargas], ['Isapre/Fonasa', c.isapre]].map(([k, v]) => `<div class="kv"><span>${k}</span><b style="text-align:right">${esc(v || '—')}</b></div>`).join('')}
       ${c.estancado ? `<div class="kv"><span>En esta etapa</span><b style="color:var(--warn)">${c.diasEtapa} días · estancado</b></div>` : ''}
       <div class="fsec"><span class="small muted" style="font-weight:700">Calificación</span><div class="chips">${CALIF.map((x) => `<button class="chip ${x === c.calificacion ? 'on' : ''}" data-cal="${x}">${x}</button>`).join('')}</div></div>
+      <div class="fsec"><span class="small muted" style="font-weight:700">Etiquetas</span><div class="chips etqs">${(c.etiquetas || []).map((e) => chipEtq(e, true)).join('')}<button type="button" class="etqmas" id="fEtq">+ etiqueta</button></div></div>
       ${c.etapa === 'Perdido' && c.motivo_perdida ? `<div class="kv"><span>Motivo de pérdida</span><b>${esc(c.motivo_perdida)}</b></div>` : ''}
       <div class="kv"><span>Seguimiento</span><b style="text-align:right">${esc(seq)}</b></div>
       ${bloqueRec}
       <button class="btn" id="fEdit" style="margin-top:auto">Editar datos</button>`;
     f.querySelectorAll('[data-cal]').forEach((b) => (b.onclick = async () => { await PATCH('/api/contactos/' + c.telefono, { calificacion: b.dataset.cal === c.calificacion ? '' : b.dataset.cal }); fichaSig = ''; leerActivo(); }));
     $('fEdit').onclick = () => contactoModal(c, () => { fichaSig = ''; leerActivo(); });
+    $('fEtq').onclick = () => etiquetaModal(c.telefono, nom, () => { fichaSig = ''; leerActivo(); });
+    f.querySelectorAll('[data-qetq]').forEach((b) => (b.onclick = async () => { await DEL(`/api/contactos/${c.telefono}/etiquetas/${b.dataset.qetq}`).catch(() => {}); fichaSig = ''; leerActivo(); }));
   }
   const recargar = () => { fichaSig = ''; leerActivo(); };
   $('fLlam').onclick = () => llamadaModal(ch.telefono, nom, null, recargar);
@@ -561,10 +594,11 @@ function pedirMotivo() {
 let pipeData = [];
 async function loadPipeline() {
   $('headActions').innerHTML = '';
-  const q = new URLSearchParams({ calificacion: $('pCal').value, isapre: $('pIsa').value, q: $('pQ').value });
+  if (!loadPipeline.etq) { loadPipeline.etq = true; await cargarEtiquetas(); pintarFiltros(); }
+  const q = new URLSearchParams({ calificacion: $('pCal').value, isapre: $('pIsa').value, q: $('pQ').value, etiqueta: $('pEtq').value });
   const d = await GET('/api/contactos?' + q).catch(() => null); if (!d) return;
   if ($('pEst').checked) d.contactos = d.contactos.filter((c) => c.estancado);
-  const sigP = JSON.stringify(d.contactos.map((c) => [c.telefono, c.etapa, c.calificacion, c.nombre, c.apellido, c.renta, c.cargas, c.isapre, c.motivo_perdida, c.edadActual, c.estancado, c.diasEtapa, c.prox, c.sinProx])) + $('pIsa').value + $('pEst').checked;
+  const sigP = JSON.stringify(d.contactos.map((c) => [c.telefono, c.etapa, c.calificacion, c.nombre, c.apellido, c.renta, c.cargas, c.isapre, c.motivo_perdida, c.edadActual, c.estancado, c.diasEtapa, c.prox, c.sinProx, c.etiquetas])) + $('pIsa').value + $('pEst').checked + $('pEtq').value;
   if (sigP === loadPipeline.sig && $('board').children.length) return;   // sin cambios: no se vuelve a dibujar
   loadPipeline.sig = sigP;
   pipeData = d.contactos;
@@ -575,7 +609,7 @@ async function loadPipeline() {
   $('pLeyenda').innerHTML = nEst ? `<span style="color:var(--warn);font-weight:600">${nEst} en naranjo</span>: más de ${d.diasEstancado} días en la misma etapa` : '';
   GET('/api/duplicados').then((x) => { const n = x.grupos.length; $('pDup').hidden = !n; $('pDup').textContent = `Contactos repetidos (${n})`; }).catch(() => {});
   $('board').innerHTML = ETAPAS.map((et, i) => { const cs = pipeData.filter((c) => (c.etapa || 'Nuevo') === et);
-    return `<section class="col" data-etapa="${et}"><div class="ch" style="background:${COL[i]}B8"><span>${et}</span><span>${cs.length}</span></div><div class="cb">${cs.slice(0, 200).map((c) => `<div class="kcard ${c.estancado ? 'est' : ''}" role="button" tabindex="0" draggable="true" data-tel="${c.telefono}"><div class="kt"><b>${esc(nombreDe(c))}</b>${c.estancado ? `<span class="dias" title="Días en esta etapa">${c.diasEtapa} días</span>` : ''}<button class="kwa" data-chat="${c.telefono}" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg></button></div>${c.prox && c.prox.fecha ? `<span class="prox okp">${c.prox.llamada ? '📞' : '🔔'} ${esc(cuando(c.prox.fecha))}${c.prox.llamada ? ' · llamada' : ''}</span>` : c.sinProx ? '<span class="prox sinp">Sin próxima acción</span>' : ''}<span>${[c.edadActual ? c.edadActual + ' años' : '', c.renta ? money(c.renta) : '', c.cargas ? c.cargas + ' cargas' : '', c.isapre].filter(Boolean).map(esc).join(' · ') || fmtTel(c.telefono)}</span>${et === 'Perdido' && c.motivo_perdida ? `<span class="pill p-bad" style="align-self:flex-start">${esc(c.motivo_perdida)}</span>` : c.calificacion ? `<span class="pill ${califPill(c.calificacion)}" style="align-self:flex-start">${esc(c.calificacion)}</span>` : ''}</div>`).join('')}${cs.length > 200 ? `<div class="small muted" style="padding:6px">y ${cs.length - 200} más… usa los filtros</div>` : ''}</div></section>`; }).join('');
+    return `<section class="col" data-etapa="${et}"><div class="ch" style="background:${COL[i]}B8"><span>${et}</span><span>${cs.length}</span></div><div class="cb">${cs.slice(0, 200).map((c) => `<div class="kcard ${c.estancado ? 'est' : ''}" role="button" tabindex="0" draggable="true" data-tel="${c.telefono}"><div class="kt"><b>${esc(nombreDe(c))}</b>${c.estancado ? `<span class="dias" title="Días en esta etapa">${c.diasEtapa} días</span>` : ''}<button class="kwa" data-chat="${c.telefono}" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg></button></div>${(c.etiquetas || []).length ? `<div class="kets">${c.etiquetas.map((e) => chipEtq(e)).join('')}</div>` : ''}${c.prox && c.prox.fecha ? `<span class="prox okp">${c.prox.llamada ? '📞' : '🔔'} ${esc(cuando(c.prox.fecha))}${c.prox.llamada ? ' · llamada' : ''}</span>` : c.sinProx ? '<span class="prox sinp">Sin próxima acción</span>' : ''}<span>${[c.edadActual ? c.edadActual + ' años' : '', c.renta ? money(c.renta) : '', c.cargas ? c.cargas + ' cargas' : '', c.isapre].filter(Boolean).map(esc).join(' · ') || fmtTel(c.telefono)}</span>${et === 'Perdido' && c.motivo_perdida ? `<span class="pill p-bad" style="align-self:flex-start">${esc(c.motivo_perdida)}</span>` : c.calificacion ? `<span class="pill ${califPill(c.calificacion)}" style="align-self:flex-start">${esc(c.calificacion)}</span>` : ''}</div>`).join('')}${cs.length > 200 ? `<div class="small muted" style="padding:6px">y ${cs.length - 200} más… usa los filtros</div>` : ''}</div></section>`; }).join('');
   $('board').querySelectorAll('.kcard').forEach((k) => {
     k.ondragstart = (e) => { e.dataTransfer.setData('text/plain', k.dataset.tel); };
     k.onclick = (e) => { if (!e.target.closest('[data-chat]')) contactoModal(pipeData.find((c) => c.telefono === k.dataset.tel), loadPipeline); };
@@ -589,10 +623,32 @@ async function loadPipeline() {
       await PATCH('/api/contactos/' + tel, { etapa: et, motivo_perdida: motivo }); loadPipeline(); };
   });
 }
-['pCal', 'pIsa'].forEach((id) => ($(id).onchange = loadPipeline));
+['pCal', 'pIsa', 'pEtq'].forEach((id) => ($(id).onchange = () => { $('pFil').value = ''; $('pFilX').hidden = true; loadPipeline(); }));
+// Filtros guardados: la combinación de filtros de la Pipeline con un nombre
+function pintarFiltros() {
+  const l = UI.filtros || [], v = $('pFil').value;
+  $('pFil').innerHTML = '<option value="">—</option>' + l.map((x, i) => `<option value="${i}" ${String(i) === v ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('');
+  $('pFilX').hidden = $('pFil').value === '';
+}
+$('pFil').onchange = () => {
+  const x = (UI.filtros || [])[+$('pFil').value]; $('pFilX').hidden = !x; if (!x) return;
+  $('pCal').value = x.cal || ''; $('pQ').value = x.q || ''; $('pEst').checked = !!x.est;
+  if (x.isa && ![...$('pIsa').options].some((o) => o.value === x.isa)) $('pIsa').insertAdjacentHTML('beforeend', `<option>${esc(x.isa)}</option>`);
+  $('pIsa').value = x.isa || ''; $('pEtq').value = ETQS.some((e) => String(e.id) === String(x.etq)) ? x.etq : '';
+  loadPipeline();
+};
+$('pFilG').onclick = () => modal(`<span class="eyebrow">Pipeline</span><h3>Guardar filtro</h3><span class="small muted">Guarda los filtros de ahora para volver a ellos con un clic.</span><input id="fgNom" maxlength="40" placeholder="Ej: Calificados con 2 cargas"><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" data-close>Cancelar</button><button class="btn pri" id="fgOk">Guardar</button></div>`, (box, close) => {
+  box.querySelector('#fgOk').onclick = async () => {
+    const nombre = box.querySelector('#fgNom').value.trim(); if (!nombre) return box.querySelector('#fgNom').focus();
+    const l = [...(UI.filtros || []).filter((x) => x.nombre !== nombre), { nombre, cal: $('pCal').value, isa: $('pIsa').value, q: $('pQ').value, est: $('pEst').checked, etq: $('pEtq').value }];
+    await guardarUI({ filtros: l }); close(); pintarFiltros(); $('pFil').value = String(l.length - 1); $('pFilX').hidden = false; toast('Filtro guardado');
+  };
+  box.querySelector('#fgNom').onkeydown = (e) => { if (e.key === 'Enter') box.querySelector('#fgOk').click(); };
+});
+$('pFilX').onclick = async () => { const i = +$('pFil').value; const x = (UI.filtros || [])[i]; if (!x || !confirm(`¿Borrar el filtro «${x.nombre}»?`)) return; await guardarUI({ filtros: UI.filtros.filter((_, j) => j !== i) }); $('pFil').value = ''; pintarFiltros(); };
 $('pQ').oninput = () => { clearTimeout(loadPipeline._t); loadPipeline._t = setTimeout(loadPipeline, 250); };
 $('pNuevo').onclick = () => contactoModal({}, loadPipeline);
-$('pEst').onchange = loadPipeline;
+$('pEst').onchange = () => { $('pFil').value = ''; $('pFilX').hidden = true; loadPipeline(); };
 // Contactos repetidos: mismo nombre y apellido con distinto número
 $('pDup').onclick = async function dupModal() {
   const d = await GET('/api/duplicados').catch(() => ({ grupos: [] }));
@@ -684,6 +740,7 @@ function pintarAdjEnv() {
   renderPreview();
 }
 async function loadEnvios() {
+  cargarEtiquetas();
   CFG = await GET('/api/config');
   const masivo = puedo('masivos');
   $('eImport').hidden = !masivo; $('sOn').closest('.card').hidden = !masivo; if (!masivo) $('sOn').checked = false;
@@ -780,13 +837,13 @@ $('eFile').onchange = (e) => {
   };
   r.readAsArrayBuffer(f);
 };
-const segFiltros = () => ({ etapa: $('sEtapa').value, calificacion: $('sCal').value, isapre: $('sIsa').value, cargas: $('sCar').value, edadMin: $('sEMin').value, edadMax: $('sEMax').value, rentaMin: $('sRMin').value });
+const segFiltros = () => ({ etiqueta: $('sEtq').value, etapa: $('sEtapa').value, calificacion: $('sCal').value, isapre: $('sIsa').value, cargas: $('sCar').value, edadMin: $('sEMin').value, edadMax: $('sEMax').value, rentaMin: $('sRMin').value });
 async function contarSeg() {
   const d = await POST('/api/segmento', { filtros: segFiltros() }).catch(() => ({ n: 0, muestra: [] }));
   segN = d.n; segMuestra = d.muestra; $('sCount').textContent = `+${segN} contactos`;
   $('sFilters').style.opacity = $('sOn').checked ? 1 : 0.5; renderDest();
 }
-['sEtapa', 'sCal', 'sIsa', 'sCar', 'sOn'].forEach((id) => ($(id).onchange = () => { if (id !== 'sOn') $('sOn').checked = true; contarSeg(); }));
+['sEtapa', 'sCal', 'sIsa', 'sCar', 'sEtq', 'sOn'].forEach((id) => ($(id).onchange = () => { if (id !== 'sOn') $('sOn').checked = true; contarSeg(); }));
 ['sEMin', 'sEMax', 'sRMin'].forEach((id) => ($(id).oninput = () => { $('sOn').checked = true; clearTimeout(contarSeg._t); contarSeg._t = setTimeout(contarSeg, 300); }));
 function renderPreview() {
   const lista = [...dest, ...($('sOn').checked ? segMuestra : [])];
