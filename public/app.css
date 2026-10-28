@@ -401,3 +401,27 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .siete b{font-size:17px}
 .siete b .muted{font-size:13px;font-weight:500}
 .siete .tope{display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;background:var(--paper);font-size:11px}
+
+/* Venta cerrada: tarjeta con confeti y franja que baja */
+.fiesta{position:fixed;inset:0;z-index:95;pointer-events:none}
+.fiesta.tarjeta{background:rgba(var(--sombra),.38);pointer-events:auto;display:flex;align-items:center;justify-content:center}
+.fiesta .conf{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.fiesta .conf i{position:absolute;top:-16px;width:9px;height:15px;border-radius:2px;animation:caer linear infinite}
+@keyframes caer{0%{transform:translateY(0) rotate(0)}100%{transform:translateY(105vh) rotate(calc(var(--giro,1) * 560deg))}}
+.ftar{position:relative;width:min(400px,92vw);padding:28px 28px 22px;border-radius:26px;background:var(--paper);text-align:center;box-shadow:0 24px 60px rgba(var(--sombra),.35);display:flex;flex-direction:column;align-items:center;gap:8px;animation:salta .6s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes salta{0%{transform:scale(.6);opacity:0}100%{transform:scale(1);opacity:1}}
+.ftar .em{font-size:46px;line-height:1}
+.ftar h3{margin:4px 0 0;font-family:var(--serif);font-size:26px;color:var(--terra-d)}
+.ftar p{margin:0;color:var(--muted)}
+.ftar .dato{margin:8px 0 10px;padding:10px 14px;border-radius:14px;background:var(--sand);font-size:14px}
+.fiesta.franja .fban{position:absolute;left:50%;top:14px;transform:translateX(-50%);width:min(520px,92vw);display:flex;gap:12px;align-items:center;padding:12px 18px;border-radius:18px;background:var(--green);color:var(--on-green);box-shadow:0 12px 30px rgba(var(--sombra),.3);animation:baja .5s ease-out both}
+.fiesta.franja .fban b{font-family:var(--serif);font-size:16px}
+.fiesta.franja .em{font-size:30px}
+@keyframes baja{0%{transform:translate(-50%,-90px)}100%{transform:translate(-50%,0)}}
+@media (prefers-reduced-motion:reduce){.fiesta .conf{display:none}.ftar,.fiesta.franja .fban{animation:none}}
+/* Anualidad en la ficha */
+.anual{display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px solid var(--line2)}
+.anual .btn{align-self:flex-start}
+.abar{height:8px;border-radius:99px;background:var(--sand2);overflow:hidden}
+.abar span{display:block;height:100%;background:var(--green);border-radius:99px}
+.ahist{display:flex;flex-direction:column;gap:2px;border-left:2px solid var(--line);padding-left:8px;margin-top:4px}

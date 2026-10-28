@@ -367,7 +367,7 @@ async function openDb(dataDir) {
     // Próxima acción de cada lead: el recordatorio pendiente más cercano (las llamadas también crean uno)
     proximasAcciones: () => { const m = {}; for (const r of all('SELECT telefono, fecha, texto, llamada_id FROM recordatorios WHERE hecho = 0 ORDER BY fecha ASC')) if (!m[r.telefono]) m[r.telefono] = r; return m; },
     contarRecordatoriosHasta: (iso) => get('SELECT COUNT(*) AS n FROM recordatorios WHERE hecho = 0 AND fecha <= ?', [iso]).n,
-    recordatoriosPendientes: () => all(`SELECT r.*, COALESCE(NULLIF(c.nombre, ''), w.nombre) AS nombre, c.apellido, c.etapa FROM recordatorios r LEFT JOIN contactos c ON c.telefono = r.telefono LEFT JOIN nombres_wa w ON w.telefono = r.telefono WHERE r.hecho = 0 ORDER BY r.fecha ASC LIMIT 200`),
+    recordatoriosPendientes: () => all(`SELECT r.*, COALESCE(NULLIF(c.nombre, ''), w.nombre) AS nombre, c.apellido, c.etapa FROM recordatorios r LEFT JOIN contactos c ON c.telefono = r.telefono LEFT JOIN nombres_wa w ON w.telefono = r.telefono WHERE r.hecho = 0 AND (IFNULL(r.anual, 0) = 0 OR r.fecha <= ?) ORDER BY r.fecha ASC LIMIT 200`, [new Date(Date.now() + 7 * 86400000).toISOString()]),   // los avisos de aniversario aparecen una semana antes
     recordatoriosDe: (tel) => all('SELECT * FROM recordatorios WHERE telefono = ? AND hecho = 0 ORDER BY fecha ASC', [tel]),
     recordatoriosVencidos: (iso) => all('SELECT * FROM recordatorios WHERE hecho = 0 AND avisado = 0 AND fecha <= ?', [iso]),
     recordatorioAvisado: (id) => run('UPDATE recordatorios SET avisado = 1 WHERE id = ?', [id]),

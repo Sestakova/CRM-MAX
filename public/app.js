@@ -347,6 +347,7 @@ async function loadHoy() {
   const filaLead = (c, extra) => `<div class="li"><div class="grow" style="min-width:0"><b>${esc(nomCorto(c))}</b><div class="small muted">${esc(c.etapa)}${extra ? ' · ' + extra : ''}</div></div><button class="btn sm" data-llamar="${c.telefono}" data-nom="${esc(nomCorto(c))}">Agendar llamada</button><button class="btn sm" data-chat="${c.telefono}">Chat</button></div>`;
   $('iSinProx').innerHTML = d.leads.sinProx ? d.leads.sinProxLista.map((c) => filaLead(c)).join('') + (d.leads.sinProx > d.leads.sinProxLista.length ? `<div class="small muted" style="padding:10px 20px">y ${d.leads.sinProx - d.leads.sinProxLista.length} más</div>` : '') : '<div class="empty">Todos los que conversan contigo tienen un siguiente paso 👌</div>';
   $('iEst').innerHTML = d.leads.estancados ? d.leads.estancadosLista.map((c) => filaLead(c, `<span style="color:var(--warn);font-weight:600">${c.diasEtapa} días</span>`)).join('') : `<div class="empty">Ningún lead lleva más de ${d.leads.diasEstancado} días quieto</div>`;
+  $('iAniv').innerHTML = (d.aniversariosMes || []).length ? d.aniversariosMes.map((a) => `<div class="li"><div class="grow" style="min-width:0"><b>${esc(nombreDe(a))}</b><div class="small muted">${esc(a.isapre || 'Sin Isapre')}</div></div><span class="pill p-mut">${dma(a.fecha).slice(0, 5)}</span><button class="btn sm" data-chat="${a.telefono}">Chat</button></div>`).join('') : '<div class="empty">Ningún cliente cumple su aniversario este mes</div>';
   $('iProg').innerHTML = d.programados.length ? d.programados.map((p) => `<div class="li"><span class="pill p-info">${fechaLarga(p.fecha)}</span><div class="grow"><b>${esc(p.nombre)}</b><div class="small muted">${p.total} contactos</div></div></div>`).join('') : '<div class="empty">No hay envíos programados</div>';
   const pct = d.salud.pct;
   $('iSalud').innerHTML = `<div class="kv"><span>Bajas últimos 7 días</span><b style="color:${pct >= 2 ? 'var(--bad)' : 'var(--ok)'}">${pct.toLocaleString('es-CL')}% · ${pct >= 2 ? 'alto, baja el ritmo' : 'normal'}</b></div><div class="kv"><span>Enviados últimos 7 días</span><b>${d.salud.enviados7}</b></div><div class="kv"><span>Alerta si supera</span><b>2%</b></div>`;
@@ -371,12 +372,14 @@ function contactoModal(c = {}, onSaved) {
       <label class="f" id="mMoW">Motivo de pérdida<select id="mMo"><option value=""></option>${MOTIVOS.map((e) => `<option ${e === c.motivo_perdida ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
     </div>
     <datalist id="isaList">${['Fonasa', 'Banmédica', 'Colmena', 'Consalud', 'Cruz Blanca', 'Esencial', 'Nueva Masvida', 'Vida Tres'].map((x) => `<option>${x}</option>`).join('')}</datalist>
+    ${nuevo ? '' : anualHTML(c)}
     <span class="small" id="mErr" style="color:var(--bad)"></span>
     <div style="display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap">
       <div style="display:flex;gap:10px;flex-wrap:wrap">${nuevo ? '' : `<button class="btn" id="mChat">Abrir chat</button><button class="btn" id="mLlam">Agendar llamada</button>${puedo('eliminar') ? '<button class="btn danger" id="mDel">Eliminar</button>' : ''}`}</div>
       <div style="display:flex;gap:10px"><button class="btn" data-close>Cancelar</button><button class="btn pri" id="mSave">Guardar</button></div>
     </div>`, (box, close) => {
     const upd = () => ($('mMoW').style.display = $('mEt').value === 'Perdido' ? '' : 'none'); upd(); $('mEt').onchange = upd;
+    if (!nuevo) activarAnual(box, c, onSaved);
     if (!nuevo) {
       $('mChat').onclick = () => { close(); openChat(c.telefono); };
       $('mLlam').onclick = () => { close(); llamadaModal(c.telefono, nombreDe(c), null, onSaved); };
@@ -387,9 +390,10 @@ function contactoModal(c = {}, onSaved) {
       try {
         if (nuevo) {
           const tel = normPhone($('mT').value); if (!tel) { $('mErr').textContent = 'Revisa el teléfono (ej: +56 9 1234 5678)'; return; }
-          await POST('/api/contactos', { ...campos, telefono: tel });
-          await PATCH('/api/contactos/' + tel, { etapa: campos.etapa, calificacion: campos.calificacion, motivo_perdida: campos.motivo_perdida });
-        } else await PATCH('/api/contactos/' + c.telefono, campos);
+          const r1 = await POST('/api/contactos', { ...campos, telefono: tel });
+          const r2 = await PATCH('/api/contactos/' + tel, { etapa: campos.etapa, calificacion: campos.calificacion, motivo_perdida: campos.motivo_perdida });
+          const fiesta = (r1 && r1.celebrar) || (r2 && r2.celebrar); if (fiesta) setTimeout(() => celebrar(fiesta), 50);
+        } else { const r = await PATCH('/api/contactos/' + c.telefono, campos); if (r && r.celebrar) setTimeout(() => celebrar(r.celebrar), 50); }
         close(); toast('Contacto guardado'); onSaved && onSaved();
       } catch (e) { $('mErr').textContent = e.message; }
     };
@@ -452,7 +456,7 @@ function pintarBarra(d) {
   if ($('cEtapa')) $('cEtapa').onchange = async () => {
     const nueva = $('cEtapa').value; let motivo = '';
     if (nueva === 'Perdido') { motivo = await pedirMotivo(); if (!motivo) { $('cEtapa').value = et; return; } }
-    await PATCH('/api/contactos/' + ch.telefono, { etapa: nueva, motivo_perdida: motivo }); toast('Etapa actualizada'); fichaSig = ''; leerActivo();
+    await cambiarEtapa(ch.telefono, nueva, motivo); toast('Etapa actualizada'); fichaSig = ''; leerActivo();
   };
 }
 function proxTxt(c) {
@@ -488,6 +492,7 @@ function pintarFicha(d) {
       ${c.estancado ? `<div class="kv"><span>En esta etapa</span><b style="color:var(--warn)">${c.diasEtapa} días · estancado</b></div>` : ''}
       <div class="fsec"><span class="small muted" style="font-weight:700">Calificación</span><div class="chips">${CALIF.map((x) => `<button class="chip ${x === c.calificacion ? 'on' : ''}" data-cal="${x}">${x}</button>`).join('')}</div></div>
       <div class="fsec"><span class="small muted" style="font-weight:700">Etiquetas</span><div class="chips etqs">${(c.etiquetas || []).map((e) => chipEtq(e, true)).join('')}<button type="button" class="etqmas" id="fEtq">+ etiqueta</button></div></div>
+      ${anualHTML(c)}
       ${c.etapa === 'Perdido' && c.motivo_perdida ? `<div class="kv"><span>Motivo de pérdida</span><b>${esc(c.motivo_perdida)}</b></div>` : ''}
       <div class="kv"><span>Seguimiento</span><b style="text-align:right">${esc(seq)}</b></div>
       ${bloqueRec}
@@ -495,6 +500,7 @@ function pintarFicha(d) {
     f.querySelectorAll('[data-cal]').forEach((b) => (b.onclick = async () => { await PATCH('/api/contactos/' + c.telefono, { calificacion: b.dataset.cal === c.calificacion ? '' : b.dataset.cal }); fichaSig = ''; leerActivo(); }));
     $('fEdit').onclick = () => contactoModal(c, () => { fichaSig = ''; leerActivo(); });
     $('fEtq').onclick = () => etiquetaModal(c.telefono, nom, () => { fichaSig = ''; leerActivo(); });
+    activarAnual(f, c, () => { fichaSig = ''; leerActivo(); });
     f.querySelectorAll('[data-qetq]').forEach((b) => (b.onclick = async () => { await DEL(`/api/contactos/${c.telefono}/etiquetas/${b.dataset.qetq}`).catch(() => {}); fichaSig = ''; leerActivo(); }));
   }
   const recargar = () => { fichaSig = ''; leerActivo(); };
@@ -630,7 +636,7 @@ async function loadPipeline() {
     col.ondrop = async (e) => { e.preventDefault(); col.classList.remove('drop'); const tel = e.dataTransfer.getData('text/plain'); const et = col.dataset.etapa;
       const c = pipeData.find((x) => x.telefono === tel); if (!c || c.etapa === et) return;
       let motivo = ''; if (et === 'Perdido') { motivo = await pedirMotivo(); if (!motivo) return; }
-      await PATCH('/api/contactos/' + tel, { etapa: et, motivo_perdida: motivo }); loadPipeline(); };
+      await cambiarEtapa(tel, et, motivo); loadPipeline(); };
   });
 }
 ['pCal', 'pIsa', 'pEtq'].forEach((id) => ($(id).onchange = () => { $('pFil').value = ''; $('pFilX').hidden = true; loadPipeline(); }));
@@ -1539,6 +1545,78 @@ setInterval(() => {
   if (pasado > BLOQUEO_MIN * 60000) return bloquear('inactividad');
   if (!avisoBloqueo && pasado > (BLOQUEO_MIN - 2) * 60000) { avisoBloqueo = true; toast('El programa se bloqueará en 2 minutos si no respondes ningún chat'); }
 }, 15000);
+
+// ---------------- Venta cerrada: felicitaciones y anualidad ----------------
+const dma = (f) => String(f).slice(0, 10).split('-').reverse().join('-');   // AAAA-MM-DD → DD-MM-AAAA
+const MOTIVOS_ANUAL = ['Apertura de cartera', 'Cambio de plan'];
+// Cambia la etapa desde cualquier lugar; si el lead pasa a Ingresado por primera vez, celebra
+async function cambiarEtapa(tel, etapa, motivo = '') {
+  const r = await PATCH('/api/contactos/' + tel, { etapa, motivo_perdida: motivo });
+  if (r && r.celebrar) celebrar(r.celebrar);
+  return r;
+}
+function confeti(caja, n) {
+  const C = ['var(--terra)', 'var(--green)', 'var(--orange)', 'var(--cream)', 'var(--ok)', 'var(--terra-d)'];
+  caja.innerHTML = Array.from({ length: n }, (_, i) => `<i style="left:${Math.random() * 100}%;background:${C[i % C.length]};animation-duration:${2.4 + Math.random() * 2}s;animation-delay:${-Math.random() * 3}s;--giro:${Math.random() < 0.5 ? -1 : 1}"></i>`).join('');
+}
+// 1) Tarjeta al centro con confeti; 2) al cerrarla, baja una franja verde que se va sola a los 5 segundos
+function celebrar(d) {
+  const f = $('fiesta'); clearTimeout(celebrar._t);
+  f.className = 'fiesta tarjeta'; f.hidden = false;
+  f.innerHTML = `<div class="conf"></div><div class="ftar" role="dialog" aria-modal="true" aria-labelledby="ftT"><div class="em" aria-hidden="true">🎉</div><h3 id="ftT">¡Felicitaciones!</h3><p>${esc(d.nombre)} ya es tu cliente${d.isapre ? ` en <b>${esc(d.isapre)}</b>` : ''}.</p><div class="dato">Su anualidad cuenta desde hoy, <b>${dma(d.desde)}</b>.<br>Te aviso un mes antes del <b>${dma(d.aniversario)}</b>.</div><button class="btn pri lg" id="ftOk">¡Vamos!</button></div>`;
+  confeti(f.querySelector('.conf'), 70);
+  document.body.classList.add('tapado'); syncVista(true);
+  $('ftOk').focus();
+  $('ftOk').onclick = () => {
+    document.body.classList.remove('tapado'); syncVista(true);
+    f.className = 'fiesta franja';
+    f.innerHTML = `<div class="conf"></div><div class="fban" role="status"><span class="em" aria-hidden="true">🎉</span><span><b>¡Venta cerrada!</b><br><span class="small">${esc(d.nombre)}${d.isapre ? ' · ' + esc(d.isapre) : ''} · anualidad desde hoy ${dma(d.desde)}</span></span></div>`;
+    confeti(f.querySelector('.conf'), 30);
+    celebrar._t = setTimeout(() => { f.hidden = true; f.innerHTML = ''; }, 5000);
+  };
+}
+// Bloque «Anualidad» de la ficha (se completa con el historial al llegar)
+function anualHTML(c) {
+  if (!c || (c.etapa !== 'Ingresado' && !c.anualidad)) return '';
+  const a = c.anualidad;
+  if (!a) return `<div class="fsec anual" data-anual="${c.telefono}"><span class="small muted" style="font-weight:700">Anualidad</span><span class="small muted">Sin anualidad: entró a Ingresado antes de esta versión y no hay fecha guardada.</span><button class="btn sm" data-afijar>Fijar anualidad</button></div>`;
+  return `<div class="fsec anual" data-anual="${c.telefono}"><span class="small muted" style="font-weight:700">Anualidad</span><span>Desde <b>${dma(a.desde)}</b> · aniversario <b>${dma(a.aniversario)}</b></span><div class="abar"><span style="width:${Math.round(a.progreso * 100)}%"></span></div><span class="small muted">${a.mesesFaltan ? `Faltan ${a.mesesFaltan} mes${a.mesesFaltan === 1 ? '' : 'es'}` : 'Este mes'} · te aviso el ${dma(a.aviso)} · se renueva sola</span><button class="btn sm" data-arenovar>↻ Renovar anualidad</button><div class="ahist" hidden></div></div>`;
+}
+const TIPO_ANUAL = { ingreso: 'Ingresado', automatica: 'Se renovó sola', fijada: 'Anualidad fijada a mano' };
+async function activarAnual(raiz, c, listo) {
+  const el = raiz.querySelector('[data-anual]'); if (!el) return;
+  const nom = nombreDe(c);
+  const b1 = el.querySelector('[data-arenovar]'), b2 = el.querySelector('[data-afijar]');
+  if (b1) b1.onclick = () => renovarModal(c, 'renovada', listo);
+  if (b2) b2.onclick = () => renovarModal(c, 'fijada', listo);
+  const h = el.querySelector('.ahist'); if (!h) return;
+  const d = await GET(`/api/contactos/${c.telefono}/anualidad`).catch(() => null);
+  if (!d || !d.historial.length) return;
+  h.innerHTML = '<span class="small muted" style="font-weight:700">Historial</span>' + d.historial.slice(0, 6).map((x) => `<span class="small">${dma(x.fecha)} · ${x.tipo === 'renovada' ? 'Renovada por ' + esc(String(x.motivo || '').toLowerCase()) : TIPO_ANUAL[x.tipo] || ''}${x.isapre ? ' (' + esc(x.isapre) + ')' : ''}</span>`).join('');
+  h.hidden = false; void nom;
+}
+// Renovar (apertura de cartera, cambio de plan u otro) o fijar la fecha de un cliente sin anualidad
+function renovarModal(c, tipo, listo) {
+  const hoy = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const renovar = tipo === 'renovada';
+  modal(`<span class="eyebrow">Anualidad</span><h3>${renovar ? 'Renovar anualidad' : 'Fijar anualidad'}</h3><span class="small muted">${esc(nombreDe(c))} ${renovar ? 'empezará a contar un año nuevo.' : 'empezará a contar su año desde la fecha que elijas.'}</span>
+    ${renovar ? `<span class="small muted" style="font-weight:700">Motivo</span>${[...MOTIVOS_ANUAL, 'Otro motivo…'].map((m, i) => `<label class="opc ${i ? '' : 'on'}"><input type="radio" name="amot" value="${i < MOTIVOS_ANUAL.length ? esc(m) : ''}" ${i ? '' : 'checked'}><span>${m}</span></label>`).join('')}<input id="aOtro" maxlength="80" placeholder="Escribe el motivo" hidden>` : ''}
+    <label class="f">${renovar ? 'Nueva fecha de inicio' : 'Fecha de inicio'}<input type="date" id="aFecha" value="${hoy}"></label>
+    ${renovar ? `<label class="f">Nueva Isapre (si cambió)<input id="aIsa" list="isaList2" placeholder="${esc(c.isapre || '')}"></label><datalist id="isaList2">${['Banmédica', 'Colmena', 'Consalud', 'Cruz Blanca', 'Esencial', 'Nueva Masvida', 'Vida Tres'].map((x) => `<option>${x}</option>`).join('')}</datalist>` : ''}
+    <span class="small" id="aErr" style="color:var(--bad)"></span>
+    <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn" data-close>Cancelar</button><button class="btn pri" id="aOk">${renovar ? 'Renovar' : 'Fijar'}</button></div>`, (box, close) => {
+    box.querySelectorAll('input[name=amot]').forEach((r) => (r.onchange = () => { box.querySelectorAll('.opc').forEach((o) => o.classList.toggle('on', o.contains(r) && r.checked)); $('aOtro').hidden = r.value !== ''; if (!$('aOtro').hidden) $('aOtro').focus(); }));
+    $('aOk').onclick = async () => {
+      const sel = box.querySelector('input[name=amot]:checked');
+      const motivo = renovar ? (sel && sel.value ? sel.value : $('aOtro').value.trim()) : '';
+      if (renovar && !motivo) { $('aErr').textContent = 'Escribe el motivo'; return; }
+      try {
+        await POST(`/api/contactos/${c.telefono}/anualidad`, { tipo, fecha: $('aFecha').value, motivo, isapre: renovar ? $('aIsa').value : '' });
+        close(); toast(renovar ? 'Anualidad renovada' : 'Anualidad fijada'); loadPipeline.sig = ''; if (listo) listo();
+      } catch (e) { $('aErr').textContent = e.message; }
+    };
+  });
+}
 
 // ---------------- Tema de color ----------------
 // Claro, Invertido, Oscuro o Automático (oscuro de noche). Se guarda en la configuración y en este PC para abrir sin destello
