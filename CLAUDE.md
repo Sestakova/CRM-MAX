@@ -2,20 +2,22 @@
 
 Programa de escritorio (Electron) para Windows: CRM de leads de Isapre con WhatsApp Web integrado, pipeline, envíos masivos, leads de Meta y mensajes automáticos. Usuario: Jesús Bustamante. Todo en español, textos simples y directos.
 
-Versión actual publicada: **4.0.1** (código de esta carpeta).
+Versión actual publicada: **4.3.0** (código de esta carpeta).
 
 ## Estructura
 
 | Archivo | Qué hace |
 | --- | --- |
-| `main.js` | Proceso principal Electron: ventana, vista de WhatsApp (WebContentsView, partición `persist:whatsapp`), bandeja, avisos de Windows, actualizaciones (electron-updater) |
-| `preload.js` | Expone `window.crmNativo.waVista(rect)` para ubicar la vista de WhatsApp |
-| `server.js` | Servidor Express local (127.0.0.1, puerto aleatorio): API, cola de envíos, secuencias, programados, agendados, llamadas, postventa, resumen diario, métricas, conexión whatsapp-web.js |
+| `arranque.js` | Punto de entrada: abre la versión liviana guardada en `userData/liviana/` si es compatible; si no, `main.js` instalado |
+| `main.js` | Proceso principal Electron: ventana, vistas de WhatsApp y Cotizador (WebContentsView), bandeja, avisos de Windows, tema de la barra de título, descargas a la carpeta del cliente, actualizaciones (liviana o electron-updater) |
+| `preload.js` | Expone `window.crmNativo` (ubicar las vistas de WhatsApp y Cotizador, avisar el tema) |
+| `server.js` | Servidor Express local (127.0.0.1, puerto aleatorio): API, cola de envíos, secuencias, programados, agendados, llamadas, anualidad, documentos, UF, métricas, conexión whatsapp-web.js |
 | `db.js` | SQLite con sql.js (`datos/crm.db`), esquema, migraciones (`ensure`), valores por defecto (`DEFAULTS`) |
 | `meta.js` | Leads de formularios de Facebook/Instagram |
+| `temas.js`, `uf.js`, `anualidad.js`, `documentos.js`, `liviana.js`, `carriles.js`, `llamadas.js`, `tandas.js` | Lógica pura con pruebas en `test/` (temas, UF del día 5 y 7%, anualidad, carpeta de documentos, actualización liviana, cola, llamadas, grupos) |
 | `auth.js` | PIN de 4 dígitos, sesión, código de recuperación |
 | `public/` | Interfaz (index.html, app.js, app.css, fuentes Cinzel/Jost locales, logo) |
-| `build/` | Íconos, `afterPack.js` (ícono y versión del .exe con resedit), `aplicar-parches.js` y `parches/` |
+| `build/` | Íconos (`carpeta.ico` se crea con `crear-icono-carpeta.js`), `afterPack.js` (ícono y versión del .exe con resedit), `aplicar-parches.js`, `parches/` y `liviana.js` (huella y paquete liviano) |
 
 ## Reglas importantes (no romper)
 
@@ -45,6 +47,4 @@ npm run build      # crea dist/Instalar-CRM-HERMES.exe, .blockmap y latest.yml
 
 ## Pendiente / ideas acordadas
 
-- Modo oscuro con opción Claro / Oscuro / Automático (falta decidir: seguir a Windows o por horario).
-- Actualizaciones más rápidas: paquete liviano solo con `public/` y archivos .js (sin reinstalar Electron), revisar cada 30 min, asar con instalación más rápida.
-- Más adelante: cotización en PDF, notas por lead, etiquetas propias, exportar a Excel, meta de ventas, respaldo automático.
+- Más adelante: cotización en PDF, notas por lead, exportar a Excel, respaldo automático, integrar el Cotizador con el lead, licencias.
