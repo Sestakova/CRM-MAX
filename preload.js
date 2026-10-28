@@ -5,5 +5,6 @@ contextBridge.exposeInMainWorld('crmNativo', {
   waVista: (r) => ipcRenderer.send('wa-vista', rect(r)),
   cotVista: (r) => ipcRenderer.send('cot-vista', rect(r)),
   cotRecargar: () => ipcRenderer.send('cot-recargar'),
-  tema: (efectivo) => ipcRenderer.send('tema', String(efectivo))
+  tema: (efectivo) => ipcRenderer.send('tema', String(efectivo)),
+  sano: () => ipcRenderer.send('crm-sano')
 });

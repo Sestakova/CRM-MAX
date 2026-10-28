@@ -60,3 +60,16 @@ test('elige qué bajar: liviana compatible, completa, o nada', () => {
   assert.equal(L.elegirDescarga({ efectiva: '4.3.1', huella: 'h1', liviana: { version: '4.3.1', huella: 'h1' }, completa: { version: '4.3.1' } }), null);
   assert.equal(L.elegirDescarga({ efectiva: '4.3.1', huella: 'h1', liviana: null, completa: null }), null);
 });
+test('no vuelve a bajar una versión liviana que ya falló', () => {
+  assert.equal(L.elegirDescarga({ efectiva: '4.3.0', huella: 'h1', liviana: { version: '4.3.1', huella: 'h1' }, completa: null, fallida: '4.3.1' }), null);
+  assert.equal(L.elegirDescarga({ efectiva: '4.3.0', huella: 'h1', liviana: { version: '4.3.1', huella: 'h1' }, completa: { version: '4.3.1' }, fallida: '4.3.1' }), 'completa');
+  assert.equal(L.elegirDescarga({ efectiva: '4.3.0', huella: 'h1', liviana: { version: '4.3.2', huella: 'h1' }, completa: null, fallida: '4.3.1' }), 'liviana');
+});
+test('aplicar no borra la versión que está corriendo', () => {
+  const ud = carpetaNueva();
+  fs.mkdirSync(path.join(ud, 'liviana', '4.3.1'), { recursive: true });
+  fs.mkdirSync(path.join(ud, 'liviana', '4.3.0'), { recursive: true });
+  L.aplicar(ud, { version: '4.3.2', huella: 'h1' }, [{ ruta: 'main.js', datos: Buffer.from('m') }], { conservar: '4.3.1' });
+  assert.deepEqual(fs.readdirSync(path.join(ud, 'liviana')).sort(), ['4.3.1', '4.3.2']);
+});
+test('versión del paquete con formato raro se rechaza', () => assert.throws(() => L.aplicar(carpetaNueva(), { version: '../x', huella: 'h1' }, [])));

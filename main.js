@@ -32,7 +32,7 @@ function findBrowser() {
   return [...new Set(c.filter((p) => { try { return fs.existsSync(p); } catch { return false; } }))];
 }
 
-const UNICA = app.requestSingleInstanceLock();
+const UNICA = typeof global.CRM_UNICA === 'boolean' ? global.CRM_UNICA : app.requestSingleInstanceLock();   // arranque.js ya lo pidió
 if (!UNICA) { app.exit(0); }
 // El puerto cambia cada vez que se abre: se borra el archivo viejo (solo la primera ventana, nunca una segunda apertura)
 else { try { fs.unlinkSync(path.join(app.getPath('userData'), 'DevToolsActivePort')); } catch {} }
@@ -130,7 +130,8 @@ async function buscarActualizacion() {
     const liviana = await fetch(baseLiviana + 'liviana.json', { signal: AbortSignal.timeout(20000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     let completa = null;
     if (autoUpdater) { const r = await autoUpdater.checkForUpdates().catch(() => null); if (r && r.updateInfo) completa = { version: r.updateInfo.version }; }
-    const cual = LIV.elegirDescarga({ efectiva: VERSION, huella: miHuella, liviana, completa });
+    const fallida = (() => { try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'liviana.json'), 'utf8')).fallida || null; } catch { return null; } })();
+    const cual = LIV.elegirDescarga({ efectiva: VERSION, huella: miHuella, liviana, completa, fallida });
     if (cual === 'liviana') await bajarLiviana(liviana);
     else if (cual === 'completa') { Object.assign(up, { estado: 'descargando', version: completa.version, progreso: 0, bajado: 0, total: null, tipo: 'completa' }); autoUpdater.downloadUpdate().catch(() => { up.estado = 'error'; }); }
     else up.estado = 'aldia';
@@ -150,7 +151,7 @@ async function bajarLiviana(d) {
   }
   const buf = Buffer.concat(partes);
   if (!LIV.verificar(buf, d.sha512)) throw new Error('El paquete de la versión ' + d.version + ' llegó dañado');
-  LIV.aplicar(app.getPath('userData'), { version: d.version, huella: d.huella }, LIV.desempaquetar(buf));
+  LIV.aplicar(app.getPath('userData'), { version: d.version, huella: d.huella }, LIV.desempaquetar(buf), { conservar: global.CRM_VERSION || null });
   Object.assign(up, { estado: 'lista', progreso: 100 });
   notify('Actualización lista', `CRM HERMES ${d.version} está lista. Toca «Reiniciar y actualizar».`);
 }
@@ -162,7 +163,7 @@ const updater = {
     if (up.estado !== 'lista') return;
     quitting = true;
     if (up.tipo === 'completa' && autoUpdater) setImmediate(() => autoUpdater.quitAndInstall(true, true));
-    else { app.relaunch(); app.quit(); }
+    else { app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--oculto') }); app.quit(); }   // vuelve a abrir con la ventana a la vista
   }
 };
 
@@ -270,8 +271,8 @@ app.whenReady().then(async () => {
   win.setTitle(titulo);
   win.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle(titulo); });
   win.loadURL(`http://127.0.0.1:${srv.port}`);
-  // Si esta versión vino como actualización liviana, abrió bien: ya no hace falta volver a la instalada
-  win.webContents.once('did-finish-load', () => require('./liviana').marcarOk(app.getPath('userData')));
+  // La pantalla avisa que abrió bien: si esta versión vino como actualización liviana, ya no hace falta volver a la instalada
+  ipcMain.on('crm-sano', (e) => { if (e.sender !== win.webContents || global.CRM_SANO) return; global.CRM_SANO = true; require('./liviana').marcarOk(app.getPath('userData')); });
   win.contentView.addChildView(waView);
   // La pantalla del CRM dice dónde y cuándo mostrar WhatsApp (se oculta con el PIN, modales y otras secciones)
   ipcMain.on('wa-vista', (e, r) => {

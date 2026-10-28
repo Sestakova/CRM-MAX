@@ -1041,7 +1041,7 @@ app.post('/api/contactos/:tel/anualidad', (req, res) => {
 // Documentos de clientes: lo que se descarga desde un chat queda en «Clientes CRM HERMES» del escritorio (main.js lo guarda)
 const DOCS = require('./documentos');
 let ultimoDocumento = null;
-const carpetaExistente = (raiz, tel) => { try { const n = DOCS.carpetaDe(tel, db.contacto(tel) || {}, fs.readdirSync(raiz)); const p = path.join(raiz, n); return fs.existsSync(p) ? p : null; } catch { return null; } };
+const carpetaExistente = (raiz, tel) => { try { if (!/^\d{8,15}$/.test(String(tel))) return null; const n = DOCS.carpetaDe(tel, db.contacto(tel) || {}, fs.readdirSync(raiz)); const p = path.join(raiz, n); return DOCS.dentroDe(raiz, p) && fs.existsSync(p) ? p : null; } catch { return null; } };
 app.get('/api/documentos/:tel', (req, res) => {
   if (!docs) return res.json({ archivos: [] });
   const dir = carpetaExistente(docs.raiz(), req.params.tel); if (!dir) return res.json({ archivos: [] });
@@ -1059,7 +1059,7 @@ app.post('/api/documentos/:tel/abrir', (req, res) => {
 app.post('/api/documentos/mover-a-descargas', (req, res) => {
   if (!docs) return fail(res, 'No disponible');
   const ruta = String((req.body || {}).ruta || '');
-  if (!DOCS.dentroDe(docs.raiz(), ruta) || !fs.existsSync(ruta)) return fail(res, 'No se encontró el archivo');
+  if (!DOCS.dentroDe(docs.raiz(), ruta) || !fs.existsSync(ruta) || !fs.statSync(ruta).isFile() || /^(desktop\.ini|carpeta\.ico)$/i.test(path.basename(ruta))) return fail(res, 'No se encontró el archivo');
   const dest = DOCS.rutaLibre(docs.descargas(), path.basename(ruta), fs.existsSync);
   try { fs.renameSync(ruta, dest); } catch { fs.copyFileSync(ruta, dest); fs.unlinkSync(ruta); }
   if (ultimoDocumento && ultimoDocumento.ruta === ruta) ultimoDocumento = { ...ultimoDocumento, movido: true };

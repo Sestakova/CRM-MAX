@@ -1755,6 +1755,8 @@ document.addEventListener('keydown', (e) => {
 let pendienteChat = null;
 (async () => {
   const d = await fetch('/api/auth/estado').then((r) => r.json()).catch(() => null);
-  if (d && d.sesion) entrar(); else mostrarLock();
+  if (d && d.sesion) await entrar(); else await mostrarLock();
+  // La pantalla abrió y conversa con el programa: si esta versión vino como actualización liviana, queda confirmada
+  if (d && window.crmNativo && window.crmNativo.sano) window.crmNativo.sano();
 })();
 window.abrirChat = (tel) => { if (!YO) { pendienteChat = tel; return; } openChat(tel); };

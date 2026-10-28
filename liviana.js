@@ -41,25 +41,32 @@ function elegirArranque({ instalada, huellaInstalada, puntero, marcador, existe 
   return { usar: 'liviana', dir: puntero.dir, version: puntero.version };
 }
 // Qué bajar al revisar actualizaciones
-function elegirDescarga({ efectiva, huella: h, liviana, completa }) {
-  if (liviana && liviana.huella === h && compararVersiones(liviana.version, efectiva) > 0 && (!completa || compararVersiones(liviana.version, completa.version) >= 0)) return 'liviana';
+// (una liviana que ya falló en este PC no se vuelve a bajar)
+function elegirDescarga({ efectiva, huella: h, liviana, completa, fallida = null }) {
+  if (liviana && liviana.version !== fallida && liviana.huella === h && compararVersiones(liviana.version, efectiva) > 0 && (!completa || compararVersiones(liviana.version, completa.version) >= 0)) return 'liviana';
   if (completa && compararVersiones(completa.version, efectiva) > 0) return 'completa';
   return null;
 }
 
 const escribirAtomico = (archivo, texto) => { const tmp = archivo + '.tmp'; fs.writeFileSync(tmp, texto); fs.renameSync(tmp, archivo); };
 // Deja la versión lista para el próximo arranque: primero todos los archivos, al final el puntero
-function aplicar(userData, { version, huella: h }, archivos) {
+// (conservar: la versión liviana que está corriendo ahora, que no se puede borrar hasta reiniciar)
+function aplicar(userData, { version, huella: h }, archivos, { conservar = null } = {}) {
+  if (!/^\d+\.\d+\.\d+$/.test(String(version))) throw new Error('Versión inválida: ' + version);
   const base = path.join(userData, 'liviana'), dir = path.join(base, version), tmp = dir + '.tmp';
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const f of archivos) { if (!rutaSegura(f.ruta)) throw new Error('Ruta no permitida: ' + f.ruta); const p = path.join(tmp, f.ruta); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, f.datos); }
   fs.rmSync(dir, { recursive: true, force: true });
   fs.renameSync(tmp, dir);
   escribirAtomico(path.join(userData, 'liviana.json'), JSON.stringify({ version, huella: h, dir }, null, 2));
-  for (const x of fs.readdirSync(base)) if (x !== version) fs.rmSync(path.join(base, x), { recursive: true, force: true });
+  limpiar(base, [version, conservar]);
   return dir;
+}
+// Borra versiones viejas guardadas (si alguna está en uso, queda para la próxima vez)
+function limpiar(base, mantener) {
+  try { for (const x of fs.readdirSync(base)) if (!mantener.includes(x)) { try { fs.rmSync(path.join(base, x), { recursive: true, force: true }); } catch {} } } catch {}
 }
 // La versión liviana abrió bien: se borra la marca del intento
 const marcarOk = (userData) => { try { fs.unlinkSync(path.join(userData, 'liviana-intento.json')); } catch {} };
 
-module.exports = { huella, empaquetar, desempaquetar, sha512, verificar, compararVersiones, elegirArranque, elegirDescarga, aplicar, marcarOk, escribirAtomico };
+module.exports = { limpiar, huella, empaquetar, desempaquetar, sha512, verificar, compararVersiones, elegirArranque, elegirDescarga, aplicar, marcarOk, escribirAtomico };
