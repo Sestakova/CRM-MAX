@@ -1,6 +1,7 @@
 // Base de datos interna (SQLite en un archivo: datos/crm.db) usando sql.js (WebAssembly, sin instalar nada)
 const fs = require('fs');
 const path = require('path');
+const ANUAL = require('./anualidad');
 const initSqlJs = require('sql.js');
 
 const ETAPAS = ['Nuevo', 'Contactado', 'Respondió', 'Cotización enviada', 'Firma/documentos', 'Ingresado', 'Perdido'];
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS programados (
   id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, texto TEXT, destinatarios TEXT,
   fecha TEXT, secuencia INTEGER DEFAULT 0, estado TEXT DEFAULT 'pendiente', creado TEXT
 );
+CREATE TABLE IF NOT EXISTS anualidades (id INTEGER PRIMARY KEY AUTOINCREMENT, telefono TEXT, fecha TEXT, tipo TEXT, motivo TEXT, isapre TEXT, creado TEXT);
 CREATE TABLE IF NOT EXISTS etiquetas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT UNIQUE COLLATE NOCASE, color TEXT, creada TEXT);
 CREATE TABLE IF NOT EXISTS contacto_etiquetas (telefono TEXT, etiqueta_id INTEGER, PRIMARY KEY (telefono, etiqueta_id));
 CREATE TABLE IF NOT EXISTS adjuntos (id TEXT PRIMARY KEY, nombre TEXT, mime TEXT, tam INTEGER, archivo TEXT, creado TEXT);
@@ -122,7 +124,10 @@ async function openDb(dataDir) {
   ensure('cola', 'orden', 'INTEGER');            // orden dentro de la tanda (se cambia arrastrando)
   ensure('cola', 'sin_seguimiento', 'INTEGER DEFAULT 0');   // pidieron no iniciar seguimientos tras este envío
   ensure('llamadas', 'opciones', 'TEXT');        // lo marcado al agendar: confirmación, recordatorio y aviso (JSON)
-  ensure('tandas', 'modo', "TEXT DEFAULT 'despues'");      // despues: espera a los grupos anteriores · corriendo: sale a la vez
+  ensure('tandas', 'modo', "TEXT DEFAULT 'despues'");
+  // 4.3.0 · anualidad del cliente (desde cuándo cuenta su año de contrato) y aviso del aniversario
+  ensure('contactos', 'anual_desde', 'TEXT');
+  ensure('recordatorios', 'anual', 'INTEGER DEFAULT 0');      // despues: espera a los grupos anteriores · corriendo: sale a la vez
   // Si el programa se cerró a mitad de un envío no se reintenta: no se sabe si salió
   db.run("UPDATE cola SET estado = 'error', detalle = 'El programa se cerró mientras se enviaba: revisa en tu celular si salió', procesado = ? WHERE estado = 'enviando'", [new Date().toISOString()]);
   db.run("UPDATE contactos SET etapa_fecha = COALESCE(actualizado, creado) WHERE etapa_fecha IS NULL");
@@ -309,6 +314,41 @@ async function openDb(dataDir) {
     leadsMetaDesde: (iso) => get('SELECT COUNT(*) AS n FROM leads_meta WHERE creado >= ?', [iso]).n,
     nombreWa: (tel) => (get('SELECT nombre FROM nombres_wa WHERE telefono = ?', [tel]) || {}).nombre || '',
     mensajes: (tel, limite = 400) => all('SELECT * FROM (SELECT * FROM mensajes WHERE telefono = ? ORDER BY fecha DESC, id DESC LIMIT ?) ORDER BY fecha ASC, id ASC', [tel, limite]),
+    // ---------- anualidad del cliente (tipo: ingreso, renovada, fijada, automatica)
+    iniciarAnualidad: (tel, fecha, { tipo = 'ingreso', motivo = null, isapre = null } = {}) => {
+      const c = api.contacto(tel); if (!c) return null;
+      const isa = txt(isapre);
+      if (isa) run('UPDATE contactos SET isapre = ? WHERE telefono = ?', [isa, tel]);
+      run('UPDATE contactos SET anual_desde = ?' + (tipo === 'ingreso' ? ', ingreso_fecha = ?' : '') + ' WHERE telefono = ?', tipo === 'ingreso' ? [fecha, now(), tel] : [fecha, tel]);
+      run('INSERT INTO anualidades (telefono, fecha, tipo, motivo, isapre, creado) VALUES (?, ?, ?, ?, ?, ?)', [tel, fecha, tipo, txt(motivo) || null, isa || c.isapre || null, now()]);
+      return api.contacto(tel);
+    },
+    historialAnual: (tel) => all('SELECT fecha, tipo, motivo, isapre FROM anualidades WHERE telefono = ? ORDER BY fecha DESC, id DESC', [tel]),
+    // Renueva sola las anualidades vencidas y deja un único aviso pendiente 30 días antes del aniversario (solo clientes en Ingresado)
+    renovarAnualidadesHasta: (hoy, textoAviso) => {
+      run("DELETE FROM recordatorios WHERE anual = 1 AND hecho = 0 AND telefono IN (SELECT telefono FROM contactos WHERE IFNULL(etapa, '') <> 'Ingresado')");
+      for (const c of all("SELECT telefono, nombre, apellido, isapre, anual_desde FROM contactos WHERE etapa = 'Ingresado' AND IFNULL(anual_desde, '') <> ''")) {
+        const v = ANUAL.vigente(c.anual_desde, hoy);
+        if (v !== c.anual_desde) {
+          run('UPDATE contactos SET anual_desde = ? WHERE telefono = ?', [v, c.telefono]);
+          run("INSERT INTO anualidades (telefono, fecha, tipo, isapre, creado) VALUES (?, ?, 'automatica', ?, ?)", [c.telefono, v, c.isapre || null, now()]);
+        }
+        const [y, m, d] = ANUAL.estado(v, hoy).aviso.split('-').map(Number);
+        const fecha = new Date(y, m - 1, d, 9, 0).toISOString();
+        const nombre = [c.nombre, c.apellido].filter(Boolean).join(' ') || '+' + c.telefono;
+        if (get('SELECT id FROM recordatorios WHERE telefono = ? AND anual = 1 AND fecha = ?', [c.telefono, fecha])) continue;
+        const pend = get('SELECT id FROM recordatorios WHERE telefono = ? AND anual = 1 AND hecho = 0', [c.telefono]);
+        if (pend) run('UPDATE recordatorios SET fecha = ?, texto = ?, avisado = 0 WHERE id = ?', [fecha, textoAviso({ nombre, isapre: c.isapre }), pend.id]);
+        else run('INSERT INTO recordatorios (telefono, fecha, texto, creado, anual) VALUES (?, ?, ?, ?, 1)', [c.telefono, fecha, textoAviso({ nombre, isapre: c.isapre }), now()]);
+      }
+    },
+    // Clientes cuyo aniversario cae en el mes de «hoy»
+    aniversariosDelMes: (hoy) => {
+      const mes = String(hoy).slice(0, 7), inicio = mes + '-01';
+      return all("SELECT telefono, nombre, apellido, isapre, anual_desde FROM contactos WHERE etapa = 'Ingresado' AND IFNULL(anual_desde, '') <> ''")
+        .map((c) => ({ telefono: c.telefono, nombre: c.nombre, apellido: c.apellido, isapre: c.isapre, fecha: ANUAL.masAnios(ANUAL.vigente(c.anual_desde, inicio), ANUAL.vigente(c.anual_desde, inicio) < inicio ? 1 : 0) }))
+        .filter((x) => x.fecha.slice(0, 7) === mes).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    },
     // ---------- etiquetas propias (color = clave de la paleta et1…et6)
     etiquetas: () => all('SELECT e.id, e.nombre, e.color, (SELECT COUNT(*) FROM contacto_etiquetas x WHERE x.etiqueta_id = e.id) AS usos FROM etiquetas e ORDER BY e.nombre COLLATE NOCASE'),
     crearEtiqueta: (nombre, color) => {
@@ -450,6 +490,16 @@ async function openDb(dataDir) {
     api.setConfig('migrado_json', true);
     for (const f of ['bajas.json', 'enviados.json']) { const p = path.join(dataDir, f); if (fs.existsSync(p)) try { fs.renameSync(p, p + '.migrado'); } catch {} }
     flush();
+  }
+  // 4.3.0: los clientes que entraron a Ingresado con la 4.0.x traen su fecha de ingreso; los demás quedan «Sin anualidad»
+  if (!api.getConfig('mig_430_anual', false)) {
+    for (const c of api.all("SELECT telefono, ingreso_fecha, isapre FROM contactos WHERE etapa = 'Ingresado' AND IFNULL(ingreso_fecha, '') <> '' AND IFNULL(anual_desde, '') = ''")) {
+      const d = new Date(c.ingreso_fecha); if (isNaN(d)) continue;
+      const f = ANUAL.fechaLocal(d);
+      db.run('UPDATE contactos SET anual_desde = ? WHERE telefono = ?', [f, c.telefono]);
+      db.run("INSERT INTO anualidades (telefono, fecha, tipo, isapre, creado) VALUES (?, ?, 'ingreso', ?, ?)", [c.telefono, f, c.isapre || null, now()]);
+    }
+    api.setConfig('mig_430_anual', true);
   }
   // 4.1.0: ya no existe «Pausar todos los seguimientos»; si quedaron en pausa se reactivan una sola vez
   if (!api.getConfig('mig_410_seq', false)) {

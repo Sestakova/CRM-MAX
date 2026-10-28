@@ -670,7 +670,7 @@ function enriquecer(lista) {
   return lista.map((c) => {
     const p = prox[c.telefono]; const et = c.etapa || 'Nuevo';
     const dias = c.etapa_fecha ? Math.max(0, Math.floor((Date.now() - new Date(c.etapa_fecha)) / 86400000)) : 0;
-    return { ...c, edadActual: edadActual(c), diasEtapa: dias, etiquetas: etq[c.telefono] || [],
+    return { ...c, edadActual: edadActual(c), diasEtapa: dias, etiquetas: etq[c.telefono] || [], anualidad: c.anual_desde ? ANUAL.estado(c.anual_desde) : null,
       prox: p ? { fecha: p.fecha, texto: p.texto, llamada: !!p.llamada_id } : c.seq_estado === 'activa' ? { seguimiento: true } : null,
       estancado: ETAPAS_VIVAS.includes(et) && dias >= lim, sinProx: CONVERSANDO.includes(et) && !p && c.seq_estado !== 'activa' };
   });
@@ -993,7 +993,8 @@ app.get('/api/inicio', (req, res) => {
     salud: { enviados7: env7, bajas7: baj7, pct: env7 ? Math.round((baj7 / env7) * 1000) / 10 : 0 },
     leads: estadoLeads(),
     llamadasHoy: db.llamadasEntre(new Date(d0).toISOString(), finDeHoy().toISOString()),
-    leadsMetaHoy: db.leadsMetaDesde(d0.toISOString()), agendadosHoy: db.agendadosHoy()
+    leadsMetaHoy: db.leadsMetaDesde(d0.toISOString()), agendadosHoy: db.agendadosHoy(),
+    aniversariosMes: db.aniversariosDelMes(ANUAL.fechaLocal())
   });
 });
 
@@ -1001,8 +1002,32 @@ app.get('/api/inicio', (req, res) => {
 app.get('/api/contactos', (req, res) => res.json({ contactos: enriquecer(db.buscarContactos({ ...req.query, limite: req.query.limite || 3000 })), etapas: ETAPAS, isapres: db.isapres(), diasEstancado: Math.max(1, parseInt(db.getConfig('estancado').dias) || 5) }));
 app.post('/api/contactos', (req, res) => {
   const tel = normPhone(req.body.telefono); if (!tel) return fail(res, 'Número de teléfono inválido');
+  const antes = db.contacto(tel);
   const nuevo = db.guardarContacto({ ...req.body, telefono: tel, origen: req.body.origen || 'manual' }, { sobrescribir: !!req.body.sobrescribir });
-  ok(res, { nuevo, contacto: db.contacto(tel) });
+  ok(res, { nuevo, contacto: db.contacto(tel), celebrar: quizasCelebrar(antes, db.contacto(tel)) });
+});
+// Anualidad del cliente: empieza al pasar a Ingresado (con felicitaciones) y se renueva sola cada año
+const ANUAL = require('./anualidad');
+function revisarAnualidades() { try { db.renovarAnualidadesHasta(ANUAL.fechaLocal(), ANUAL.textoAviso); } catch (e) { log('anualidad: ' + e.message); } }
+function quizasCelebrar(antes, c) {
+  if (!c || !ANUAL.alCambiarEtapa(antes, c).iniciar) return null;
+  const hoy = ANUAL.fechaLocal();
+  db.iniciarAnualidad(c.telefono, hoy, { tipo: 'ingreso' }); revisarAnualidades();
+  const e = ANUAL.estado(hoy);
+  return { nombre: nombreC(c.telefono), isapre: c.isapre || '', desde: e.desde, aniversario: e.aniversario };
+}
+setTimeout(revisarAnualidades, 8000); setInterval(revisarAnualidades, 3600000);
+app.get('/api/contactos/:tel/anualidad', (req, res) => { const c = db.contacto(req.params.tel); if (!c) return fail(res, 'No existe', 404); res.json({ anualidad: c.anual_desde ? ANUAL.estado(c.anual_desde) : null, historial: db.historialAnual(c.telefono), etapa: c.etapa }); });
+// Renovar (apertura de cartera, cambio de plan u otro) o fijar la fecha de un cliente que no la tenía
+app.post('/api/contactos/:tel/anualidad', (req, res) => {
+  const b = req.body || {}, c = db.contacto(req.params.tel); if (!c) return fail(res, 'No existe', 404);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.fecha || '')) || isNaN(new Date(b.fecha))) return fail(res, 'Elige la fecha de inicio');
+  const tipo = b.tipo === 'fijada' ? 'fijada' : 'renovada';
+  if (tipo === 'renovada' && !String(b.motivo || '').trim()) return fail(res, 'Elige el motivo');
+  db.iniciarAnualidad(c.telefono, b.fecha, { tipo, motivo: tipo === 'renovada' ? String(b.motivo).trim().slice(0, 80) : null, isapre: String(b.isapre || '').trim().slice(0, 60) || null });
+  revisarAnualidades();
+  act(req, tipo === 'renovada' ? 'Renovó una anualidad' : 'Fijó una anualidad', nombreC(c.telefono) + (tipo === 'renovada' ? ' · ' + String(b.motivo).trim() : ''));
+  ok(res, { contacto: enriquecer([db.contacto(c.telefono)])[0], historial: db.historialAnual(c.telefono) });
 });
 // Etiquetas propias
 app.get('/api/etiquetas', (req, res) => res.json({ etiquetas: db.etiquetas() }));
@@ -1018,10 +1043,11 @@ app.patch('/api/contactos/:tel', (req, res) => {
     // Al salir de Ingresado se cancela la postventa que quedó agendada de versiones anteriores
     if (antes && antes.etapa === 'Ingresado' && c.etapa !== 'Ingresado') alSalirDeIngresado(c.telefono);
   } catch (e) { log('postventa: ' + e.message); }
+  const celebrar = quizasCelebrar(antes, c);
   if (antes && req.body.etapa && req.body.etapa !== antes.etapa) act(req, 'Cambió de etapa', `${nombreC(c.telefono)}: ${antes.etapa} → ${c.etapa}${c.motivo_perdida && c.etapa === 'Perdido' ? ' (' + c.motivo_perdida + ')' : ''}`);
   else if (antes && 'calificacion' in req.body && req.body.calificacion !== antes.calificacion) act(req, 'Calificó un lead', `${nombreC(c.telefono)}: ${c.calificacion || 'sin calificar'}`);
   else act(req, 'Editó un contacto', nombreC(c.telefono));
-  ok(res, { contacto: c });
+  ok(res, { contacto: db.contacto(c.telefono), celebrar });
 });
 app.delete('/api/contactos/:tel', puede('eliminar'), (req, res) => { const n = nombreC(req.params.tel); db.eliminarContacto(req.params.tel); act(req, 'Eliminó un contacto', n); ok(res); });
 app.post('/api/contactos/importar', puede('masivos'), (req, res) => {
