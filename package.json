@@ -28,7 +28,7 @@
     "appId": "cl.conectasalud.enviador",
     "productName": "CRM HERMES",
     "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "server.js", "db.js", "meta.js", "auth.js", "tandas.js", "carriles.js", "llamadas.js", "public/**", "package.json", "node_modules/**", "build/icon.png", "build/icon.ico"],
+    "files": ["main.js", "preload.js", "server.js", "db.js", "meta.js", "auth.js", "tandas.js", "carriles.js", "llamadas.js", "temas.js", "public/**", "package.json", "node_modules/**", "build/icon.png", "build/icon.ico"],
     "win": { "target": "nsis", "icon": "build/icon.ico", "signAndEditExecutable": false },
     "nsis": {
       "oneClick": true,

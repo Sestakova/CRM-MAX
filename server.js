@@ -768,6 +768,7 @@ function metricas(dias) {
 const app = express();
 app.use(express.json({ limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/temas.js', (req, res) => res.sendFile(path.join(__dirname, 'temas.js')));
 // Solo se aceptan pedidos hechos a este mismo programa (evita que una página web externa use la API)
 app.set('case sensitive routing', true);
 app.use((req, res, next) => {

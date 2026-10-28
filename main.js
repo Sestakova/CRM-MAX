@@ -1,4 +1,5 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, session, dialog, shell, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, dialog, shell, Tray, Menu, nativeImage, Notification, nativeTheme } = require('electron');
+const TEMAS = require('./temas');
 const PKG = require('./package.json');
 const path = require('path');
 const fs = require('fs');
@@ -167,11 +168,14 @@ app.whenReady().then(async () => {
 
   srv = await require('./server').start({ dataDir, browserPaths, version: app.getVersion(), notify, updater, embebido });
 
+  // Tema de color con que se abre: el último que usó la pantalla (así no hay destello claro de noche)
+  const temaIni = TEMAS.BARRA[prefs.tema] ? prefs.tema : 'claro';
+  nativeTheme.themeSource = temaIni === 'oscuro' ? 'dark' : 'light';
   win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 1000, minHeight: 640, show: !startHidden,
-    title: NOMBRE, autoHideMenuBar: true, backgroundColor: '#FBF7F0',
-    // Barra superior verde: la dibuja la página (public/index.html) y Windows pone sus botones encima
-    titleBarStyle: 'hidden', titleBarOverlay: { color: '#2F4A3C', symbolColor: '#F6ECDA', height: 36 },
+    title: NOMBRE, autoHideMenuBar: true, backgroundColor: TEMAS.FONDO[temaIni],
+    // Barra superior del color del tema: la dibuja la página (public/index.html) y Windows pone sus botones encima
+    titleBarStyle: 'hidden', titleBarOverlay: { ...TEMAS.BARRA[temaIni], height: 36 },
     icon: ICONO, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true }
   });
   const titulo = `${NOMBRE} · versión ${app.getVersion()}`;
@@ -205,6 +209,14 @@ app.whenReady().then(async () => {
     const z = win.webContents.getZoomFactor() || 1;
     cotView.setBounds({ x: Math.round(r.x * z), y: Math.round(r.y * z), width: Math.round(r.width * z), height: Math.round(r.height * z) });
     cotView.setVisible(true);
+  });
+  // La pantalla avisa el tema que se ve: barra de Windows, fondo y WhatsApp (modo oscuro si WhatsApp está en «predeterminado del sistema»)
+  ipcMain.on('tema', (e, t) => {
+    if (e.sender !== win.webContents || !TEMAS.BARRA[t]) return;
+    try { win.setTitleBarOverlay({ ...TEMAS.BARRA[t], height: 36 }); } catch {}
+    win.setBackgroundColor(TEMAS.FONDO[t]);
+    nativeTheme.themeSource = t === 'oscuro' ? 'dark' : 'light';
+    if (prefs.tema !== t) { prefs.tema = t; savePrefs(); }
   });
   ipcMain.on('cot-recargar', (e) => { if (e.sender === win.webContents) { cotCargado = true; cotView.webContents.loadURL(COTIZADOR); } });
   win.webContents.on('did-start-navigation', (e) => { if (e.isMainFrame) { waView.setVisible(false); cotView.setVisible(false); } });

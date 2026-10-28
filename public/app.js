@@ -126,10 +126,10 @@ function layout() {
       el.removeAttribute('title');
     });
     const p = (q) => q.map((v) => Math.round(v)).join(' ');
-    $('hilos').innerHTML = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="none" stroke="#D9C9AE" stroke-width="1.5" stroke-dasharray="4 8"/>
-      <ellipse cx="${cx}" cy="${cy}" rx="${rx * 0.6}" ry="${ry * 0.6}" fill="none" stroke="#E8DCC8" stroke-width="1.5"/>
-      ${pts.map(([x, y]) => `<path d="M${p([cx, cy])} Q ${p([(cx + x) / 2 + (y - cy) * 0.15, (cy + y) / 2 - (x - cx) * 0.15])} ${p([x, y])}" fill="none" stroke="#B4472C" stroke-opacity=".5" stroke-width="2"/>`).join('')}
-      <path d="M${pts.map(([x, y]) => p([x, y])).join(' L ')} Z" fill="none" stroke="#2F4A3C" stroke-opacity=".14" stroke-width="1.5" stroke-linejoin="round"/>`;
+    $('hilos').innerHTML = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="none" style="stroke:var(--hilo1)" stroke-width="1.5" stroke-dasharray="4 8"/>
+      <ellipse cx="${cx}" cy="${cy}" rx="${rx * 0.6}" ry="${ry * 0.6}" fill="none" style="stroke:var(--hilo2)" stroke-width="1.5"/>
+      ${pts.map(([x, y]) => `<path d="M${p([cx, cy])} Q ${p([(cx + x) / 2 + (y - cy) * 0.15, (cy + y) / 2 - (x - cx) * 0.15])} ${p([x, y])}" fill="none" style="stroke:var(--terra)" stroke-opacity=".5" stroke-width="2"/>`).join('')}
+      <path d="M${pts.map(([x, y]) => p([x, y])).join(' L ')} Z" fill="none" style="stroke:var(--green)" stroke-opacity=".14" stroke-width="1.5" stroke-linejoin="round"/>`;
     $('metBtn').style.top = '10px';
   } else {
     const comp = H < 640; document.body.classList.toggle('compacto', comp);
@@ -1133,7 +1133,7 @@ async function loadConfig() {
   const r = CFG.reglas, H = [['lv', 'Lunes a viernes'], ['sab', 'Sábado'], ['dom', 'Domingo']];
   $('rHor').innerHTML = H.map(([k, n]) => `<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" data-hon="${k}" ${r.horario[k].on ? 'checked' : ''} aria-label="${n} activo"><span style="width:120px;font-weight:600;font-size:14px">${n}</span><input type="text" data-hd="${k}" value="${r.horario[k].desde}" style="width:72px" aria-label="Desde"><span class="muted">a</span><input type="text" data-hh="${k}" value="${r.horario[k].hasta}" style="width:72px" aria-label="Hasta"></div>`).join('');
   $('rLim').value = r.limiteDiario; $('rMin').value = r.esperaMin; $('rMax').value = r.esperaMax; $('rCada').value = r.descansoCada; $('rDesc').value = r.descansoMin;
-  renderUp();
+  renderUp(); pintarTemasConfig();
 }
 function renderWaCard(force) {
   if (!EST) return; const w = EST.wa;
@@ -1445,7 +1445,7 @@ async function entrar() {
   $('lock').classList.add('off'); document.body.classList.remove('locked');
   ultimaRespuesta = Date.now(); avisoBloqueo = false;
   try { CFG = await GET('/api/config'); Object.assign(UI, CFG.ui || {}); } catch {}
-  aplicarUI();
+  aplicarUI(); cargarTema(CFG && CFG.apariencia);
   // Consejo de uso: solo las primeras veces que abres el programa
   const vistos = UI.consejosVistos || 0;
   mostrarConsejo = UI.consejo !== false && vistos < 3;
@@ -1465,8 +1465,53 @@ setInterval(() => {
   if (!avisoBloqueo && pasado > (BLOQUEO_MIN - 2) * 60000) { avisoBloqueo = true; toast('El programa se bloqueará en 2 minutos si no respondes ningún chat'); }
 }, 15000);
 
+// ---------------- Tema de color ----------------
+// Claro, Invertido, Oscuro o Automático (oscuro de noche). Se guarda en la configuración y en este PC para abrir sin destello
+const TEMA = { tema: 'claro', auto: { ...TEMAS.AUTO } };
+try { TEMA.tema = localStorage.getItem('tema') || 'claro'; TEMA.auto = JSON.parse(localStorage.getItem('temaAuto') || 'null') || TEMA.auto; } catch {}
+function aplicarTema() {
+  const ef = TEMAS.temaEfectivo(TEMA.tema, new Date(), TEMA.auto);
+  if (document.documentElement.dataset.tema !== ef) { document.documentElement.dataset.tema = ef; if (typeof layout === 'function' && document.body.classList.contains('hub')) layout(); }
+  const t = TEMAS.TEMAS.find((x) => x.id === TEMA.tema) || TEMAS.TEMAS[0];
+  $('bTema').innerHTML = TEMAS.ICONO[t.id]; $('bTema').title = 'Tema: ' + t.nombre; $('bTema').setAttribute('aria-label', 'Tema de color: ' + t.nombre);
+  if (window.crmNativo && window.crmNativo.tema && aplicarTema.ultimo !== ef) { aplicarTema.ultimo = ef; window.crmNativo.tema(ef); }
+}
+function cargarTema(ap) {
+  if (ap && ap.tema) TEMA.tema = ap.tema;
+  if (ap && ap.auto) TEMA.auto = { ...TEMAS.AUTO, ...ap.auto };
+  try { localStorage.setItem('tema', TEMA.tema); localStorage.setItem('temaAuto', JSON.stringify(TEMA.auto)); } catch {}
+  aplicarTema();
+}
+async function guardarTema(cambios) {
+  Object.assign(TEMA, cambios); cargarTema();
+  const ap = { ...((CFG && CFG.apariencia) || {}), tema: TEMA.tema, auto: TEMA.auto };
+  if (CFG) CFG.apariencia = ap;
+  await PUT('/api/config/apariencia', { valor: ap }).catch(() => {});
+  pintarTemasConfig();
+}
+function pintarTemasPop() {
+  $('temaPop').innerHTML = TEMAS.TEMAS.map((t) => `<button type="button" role="menuitemradio" aria-checked="${t.id === TEMA.tema}" class="tit ${t.id === TEMA.tema ? 'on' : ''}" data-tema="${t.id}">${TEMAS.ICONO[t.id]}<span>${t.nombre}</span></button>`).join('');
+  $('temaPop').querySelectorAll('[data-tema]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); guardarTema({ tema: b.dataset.tema }); cerrarPops(); }));
+}
+function pintarTemasConfig() {
+  if (!$('kTemas')) return;
+  $('kTemas').innerHTML = TEMAS.TEMAS.map((t) => `<button type="button" class="tit ${t.id === TEMA.tema ? 'on' : ''}" data-tema="${t.id}">${TEMAS.ICONO[t.id]}<span>${t.nombre}</span></button>`).join('');
+  $('kTemas').querySelectorAll('[data-tema]').forEach((b) => (b.onclick = () => guardarTema({ tema: b.dataset.tema })));
+  $('tOsc').value = TEMA.auto.oscuro; $('tCla').value = TEMA.auto.claro;
+  $('tOsc').onchange = $('tCla').onchange = () => { if ($('tOsc').value && $('tCla').value && $('tOsc').value !== $('tCla').value) guardarTema({ auto: { oscuro: $('tOsc').value, claro: $('tCla').value } }); };
+}
+$('bTema').onclick = (e) => {
+  e.stopPropagation();
+  if (!$('temaPop').hidden) return cerrarPops();
+  cerrarPops(); pintarTemasPop(); const r = $('bTema').getBoundingClientRect(); Object.assign($('temaPop').style, { top: r.bottom + 8 + 'px', right: Math.max(8, innerWidth - r.right) + 'px' }); $('temaPop').hidden = false; $('bTema').classList.add('on');
+  const f = $('temaPop').querySelector('.on'); if (f) f.focus();
+};
+document.addEventListener('mousedown', (e) => { if (!$('temaPop').hidden && !$('temaPop').contains(e.target) && !$('bTema').contains(e.target)) cerrarPops(); });
+aplicarTema(); setInterval(aplicarTema, 60000);
+
 // ---------------- Buscador y atajos ----------------
 function cerrarPops() {
+  $('temaPop').hidden = true; $('bTema').classList.remove('on');
   $('buscador').hidden = true;
   if ($('upCard').hidden && $('bienvenida').hidden) document.body.classList.remove('tapado');
   syncVista(true);
@@ -1506,7 +1551,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (e.defaultPrevented) return;
     if (!$('modal').hidden || !$('bienvenida').hidden || !$('upCard').hidden) return;
-    if (!$('buscador').hidden) { cerrarPops(); return; }
+    if (!$('buscador').hidden || !$('temaPop').hidden) { cerrarPops(); return; }
     if (document.querySelector('.emojipop')) return;
     go('inicio'); return;
   }

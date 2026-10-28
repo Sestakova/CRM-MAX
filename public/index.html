@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CRM HERMES</title>
 <link rel="stylesheet" href="app.css">
+<script src="/temas.js"></script>
+<script>try { const a = JSON.parse(localStorage.getItem('temaAuto') || 'null') || undefined; document.documentElement.dataset.tema = TEMAS.temaEfectivo(localStorage.getItem('tema') || 'claro', new Date(), a); } catch {}</script>
 <script src="/vendor/xlsx.js"></script>
 </head>
 <body class="locked hub">
@@ -21,6 +23,7 @@
   <button class="hb buscar" id="bBuscar" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z M20 20l-4-4"/></svg><span class="lbl">Buscar contacto</span><kbd>Ctrl K</kbd></button>
   <button class="estado" id="bEstado" type="button" data-go="config" title="Ver conexión"><span class="dot" id="waDot"></span><span id="waTxt">Iniciando…</span><span class="muted sm-hide" id="hoyTxt"></span></button>
   <span class="uf sm-hide" id="ufCard" title=""><span class="muted">UF</span> <b id="ufHoy">—</b></span>
+  <button class="hb ico" id="bTema" type="button" aria-haspopup="menu" aria-label="Tema de color" title="Tema de color"></button>
   <button class="hb ico" id="bConfig" type="button" data-go="config" aria-label="Configuración" title="Configuración"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   <button class="hb ico" id="meLock" type="button" aria-label="Bloquear ahora" title="Bloquear ahora"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button>
 </header>
@@ -190,6 +193,12 @@
           <div class="kv" style="align-items:center"><span>Respaldo de contactos, chats y configuración</span><a class="btn" href="/api/respaldo">Descargar</a></div>
         </div>
         <div class="glass card">
+          <h2>Tema de color</h2>
+          <div class="temas" id="kTemas"></div>
+          <span class="small muted">El automático usa el oscuro de noche:</span>
+          <div style="display:flex;gap:12px;flex-wrap:wrap"><label class="f">Oscuro desde<input type="time" id="tOsc"></label><label class="f">Claro desde<input type="time" id="tCla"></label></div>
+        </div>
+        <div class="glass card">
           <h2>Ayudas en pantalla</h2>
           <label class="check">Mostrar qué hace cada sección al pasar el cursor<input type="checkbox" id="uDesc"></label>
           <label class="check">Mostrar consejos de uso al abrir el programa<input type="checkbox" id="uCons"></label>
@@ -230,6 +239,7 @@
 </div>
 </div>
 
+<div class="pop tpop" id="temaPop" hidden role="menu" aria-label="Tema de color"></div>
 <div class="buscador" id="buscador" hidden><div class="bbox" role="dialog" aria-label="Buscar contacto"><label class="bq"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z M20 20l-4-4"/></svg><span class="srh">Buscar</span><input type="text" id="bqIn" placeholder="Nombre o teléfono" autocomplete="off"></label><div id="bqRes"></div><div class="bpie"><span>Enter abre el chat del primero · ↑ ↓ para moverte</span><button type="button" class="lnk" id="bqX">Cerrar (Esc)</button></div></div></div>
 <div class="upcard" id="upCard" hidden></div>
 <div class="bienvenida" id="bienvenida" hidden></div>
