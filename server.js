@@ -5,7 +5,7 @@ const path = require('path');
 const QRCode = require('qrcode');
 const { Client, LocalAuth, NoAuth } = require('whatsapp-web.js');
 
-module.exports.start = async function start({ dataDir, browserPaths = [], port = 0, version = '', notify = () => {}, updater = null, embebido = null }) {
+module.exports.start = async function start({ dataDir, browserPaths = [], port = 0, version = '', notify = () => {}, updater = null, embebido = null, docs = null }) {
 const DATA = dataDir;
 if (!fs.existsSync(DATA)) fs.mkdirSync(DATA, { recursive: true });
 const { openDb, ETAPAS } = require('./db');
@@ -806,7 +806,7 @@ const fail = (res, msg, code = 400) => res.status(code).json({ error: msg });
 app.get('/api/estado', (req, res) => {
   const r = db.getConfig('reglas');
   res.json({
-    version, wa, ultimaRespuesta: wa.ultimaRespuesta || 0, uf, actualizacion: updater ? updater.estado() : null, yo: { nombre: req.usuario.nombre },
+    version, wa, ultimaRespuesta: wa.ultimaRespuesta || 0, uf, documento: ultimoDocumento, actualizacion: updater ? updater.estado() : null, yo: { nombre: req.usuario.nombre },
     cola: { pausada: db.getConfig('cola_pausada', false), pendientes: db.pendientesCola(), porTipo: db.pendientesPorTipo(),
       nextAt: proximoEnvio(), espera: cola.espera, enviadosHoy: db.enviadosHoy(), limite: r.limiteDiario, enHorario: enHorario() },
     noLeidos: db.get('SELECT COUNT(DISTINCT telefono) AS n FROM mensajes WHERE leido = 0').n,
@@ -860,24 +860,33 @@ app.get('/api/wa/contactos', async (req, res) => {
   }).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || a.nombre.localeCompare(b.nombre, 'es'));
   res.json({ contactos: lista, wa: wa.state, deCelular: waContactosCache.lista.length });
 });
+// Chat abierto ahora en WhatsApp (lo usan la ficha y las descargas de documentos)
+async function leerChatActivo() {
+  if (wa.state !== 'listo' || !client || !client.pupPage) return null;
+  const a = await client.pupPage.evaluate(() => {
+    const C = window.require('WAWebCollections').Chat;
+    const ch = (C.getActive && C.getActive()) || C.getModelsArray().find((c) => c.active);
+    if (!ch) return null;
+    const id = ch.id;
+    return { id: id._serialized || id.$1 || (id.user + '@' + id.server), user: id.user, server: id.server, nombre: ch.formattedTitle || ch.name || '' };
+  });
+  if (!a) return null;
+  if (a.server === 'g.us' || a.server === 'newsletter' || a.server === 'broadcast') return { grupo: true, nombre: a.nombre };
+  const tel = (await resolvePhone(a.id)) || (a.server === 'c.us' ? a.user : null);
+  if (!tel) return { sinNumero: true, nombre: a.nombre };
+  return { telefono: tel, nombreWa: a.nombre };
+}
 app.get('/api/wa/activo', async (req, res) => {
   if (wa.state !== 'listo' || !client || !client.pupPage) return res.json({ chat: null, wa: wa.state });
   try {
-    const a = await client.pupPage.evaluate(() => {
-      const C = window.require('WAWebCollections').Chat;
-      const ch = (C.getActive && C.getActive()) || C.getModelsArray().find((c) => c.active);
-      if (!ch) return null;
-      const id = ch.id;
-      return { id: id._serialized || id.$1 || (id.user + '@' + id.server), user: id.user, server: id.server, nombre: ch.formattedTitle || ch.name || '' };
-    });
+    const a = await leerChatActivo();
     if (!a) return res.json({ chat: null, wa: wa.state });
-    if (a.server === 'g.us' || a.server === 'newsletter' || a.server === 'broadcast') return res.json({ chat: { grupo: true, nombre: a.nombre }, wa: wa.state });
-    const tel = (await resolvePhone(a.id)) || (a.server === 'c.us' ? a.user : null);
-    if (!tel) return res.json({ chat: { sinNumero: true, nombre: a.nombre }, wa: wa.state });
-    if (a.nombre && !/^\+?[\d\s]+$/.test(a.nombre) && db.nombreWa(tel) !== a.nombre) db.guardarNombreWa(tel, a.nombre);
+    if (a.grupo || a.sinNumero) return res.json({ chat: a, wa: wa.state });
+    const tel = a.telefono;
+    if (a.nombreWa && !/^\+?[\d\s]+$/.test(a.nombreWa) && db.nombreWa(tel) !== a.nombreWa) db.guardarNombreWa(tel, a.nombreWa);
     if (db.get('SELECT COUNT(*) AS n FROM mensajes WHERE telefono = ? AND leido = 0', [tel]).n) db.marcarLeido(tel);
     const c = db.contacto(tel);
-    res.json({ chat: { telefono: tel, nombreWa: a.nombre, contacto: c ? enriquecer([c])[0] : null, recordatorios: db.recordatoriosDe(tel), llamadas: db.llamadasDe(tel) }, wa: wa.state, etapas: ETAPAS });
+    res.json({ chat: { telefono: tel, nombreWa: a.nombreWa, contacto: c ? enriquecer([c])[0] : null, recordatorios: db.recordatoriosDe(tel), llamadas: db.llamadasDe(tel) }, wa: wa.state, etapas: ETAPAS });
   } catch (e) { res.json({ chat: null, wa: wa.state, error: e.message }); }
 });
 app.post('/api/wa/abrir/:tel', async (req, res) => {
@@ -1028,6 +1037,33 @@ app.post('/api/contactos/:tel/anualidad', (req, res) => {
   revisarAnualidades();
   act(req, tipo === 'renovada' ? 'Renovó una anualidad' : 'Fijó una anualidad', nombreC(c.telefono) + (tipo === 'renovada' ? ' · ' + String(b.motivo).trim() : ''));
   ok(res, { contacto: enriquecer([db.contacto(c.telefono)])[0], historial: db.historialAnual(c.telefono) });
+});
+// Documentos de clientes: lo que se descarga desde un chat queda en «Clientes CRM HERMES» del escritorio (main.js lo guarda)
+const DOCS = require('./documentos');
+let ultimoDocumento = null;
+const carpetaExistente = (raiz, tel) => { try { const n = DOCS.carpetaDe(tel, db.contacto(tel) || {}, fs.readdirSync(raiz)); const p = path.join(raiz, n); return fs.existsSync(p) ? p : null; } catch { return null; } };
+app.get('/api/documentos/:tel', (req, res) => {
+  if (!docs) return res.json({ archivos: [] });
+  const dir = carpetaExistente(docs.raiz(), req.params.tel); if (!dir) return res.json({ archivos: [] });
+  const archivos = fs.readdirSync(dir, { withFileTypes: true }).filter((x) => x.isFile() && !/^desktop\.ini$/i.test(x.name)).map((x) => { const st = fs.statSync(path.join(dir, x.name)); return { nombre: x.name, fecha: st.mtime.toISOString(), tam: st.size }; }).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  res.json({ archivos, carpeta: path.basename(dir) });
+});
+app.post('/api/documentos/:tel/abrir', (req, res) => {
+  if (!docs) return fail(res, 'No disponible');
+  const dir = carpetaExistente(docs.raiz(), req.params.tel); if (!dir) return fail(res, 'Este cliente todavía no tiene documentos');
+  const nombre = path.basename(String((req.body || {}).nombre || ''));
+  const p = nombre ? path.join(dir, nombre) : dir;
+  if (!fs.existsSync(p)) return fail(res, 'No se encontró el archivo');
+  docs.abrir(p); ok(res);
+});
+app.post('/api/documentos/mover-a-descargas', (req, res) => {
+  if (!docs) return fail(res, 'No disponible');
+  const ruta = String((req.body || {}).ruta || '');
+  if (!DOCS.dentroDe(docs.raiz(), ruta) || !fs.existsSync(ruta)) return fail(res, 'No se encontró el archivo');
+  const dest = DOCS.rutaLibre(docs.descargas(), path.basename(ruta), fs.existsSync);
+  try { fs.renameSync(ruta, dest); } catch { fs.copyFileSync(ruta, dest); fs.unlinkSync(ruta); }
+  if (ultimoDocumento && ultimoDocumento.ruta === ruta) ultimoDocumento = { ...ultimoDocumento, movido: true };
+  ok(res);
 });
 // Etiquetas propias
 app.get('/api/etiquetas', (req, res) => res.json({ etiquetas: db.etiquetas() }));
@@ -1312,6 +1348,9 @@ const busy = () => db.pendientesCola() > 0 && wa.state === 'listo';
 const destroy = async () => { cerrandoPrograma = true; try { if (client) await client.destroy(); } catch {} if (!embebido) { try { await killOrphans(); } catch {} } db.flush(); };
 startWhatsApp();
 return new Promise((resolve) => {
-  const srv = app.listen(port, '127.0.0.1', () => resolve({ port: (puertoServidor = srv.address().port), busy, destroy, avisos: () => db.getConfig('avisos') }));
+  const srv = app.listen(port, '127.0.0.1', () => resolve({ port: (puertoServidor = srv.address().port), busy, destroy, avisos: () => db.getConfig('avisos'),
+    // Para las descargas de WhatsApp: a qué cliente va el archivo y avisar a la pantalla cuando quedó guardado
+    chatActivo: async () => { try { const a = await leerChatActivo(); return a && a.telefono ? { telefono: a.telefono, contacto: db.contacto(a.telefono) } : null; } catch { return null; } },
+    documentoGuardado: (d) => { ultimoDocumento = { id: Date.now(), ...d }; } }));
 });
 };

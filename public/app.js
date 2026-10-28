@@ -262,6 +262,7 @@ async function poll() {
     $('waBanner').hidden = !showWa;
     $('waBannerTxt').textContent = w.state === 'qr' ? 'WhatsApp no está vinculado. Escanea el código QR para empezar.' : w.state === 'error' ? (w.err || 'No se pudo abrir WhatsApp.') + ' Se reintenta solo.' : (WA_TXT[w.state] || '') + ' Los envíos esperan hasta que conecte.';
     pintarDatos();
+    avisoDocumento(s.documento);
     revisarActualizacion(s.actualizacion);
     if (current === 'envios') { renderCola(); renderGrupos(); if (verTanda.refrescar) verTanda.refrescar(); }
     if (current === 'config') renderWaCard();
@@ -493,6 +494,7 @@ function pintarFicha(d) {
       <div class="fsec"><span class="small muted" style="font-weight:700">Calificación</span><div class="chips">${CALIF.map((x) => `<button class="chip ${x === c.calificacion ? 'on' : ''}" data-cal="${x}">${x}</button>`).join('')}</div></div>
       <div class="fsec"><span class="small muted" style="font-weight:700">Etiquetas</span><div class="chips etqs">${(c.etiquetas || []).map((e) => chipEtq(e, true)).join('')}<button type="button" class="etqmas" id="fEtq">+ etiqueta</button></div></div>
       ${anualHTML(c)}
+      <div class="fsec docs" id="fDocs" hidden></div>
       ${c.etapa === 'Perdido' && c.motivo_perdida ? `<div class="kv"><span>Motivo de pérdida</span><b>${esc(c.motivo_perdida)}</b></div>` : ''}
       <div class="kv"><span>Seguimiento</span><b style="text-align:right">${esc(seq)}</b></div>
       ${bloqueRec}
@@ -501,6 +503,7 @@ function pintarFicha(d) {
     $('fEdit').onclick = () => contactoModal(c, () => { fichaSig = ''; leerActivo(); });
     $('fEtq').onclick = () => etiquetaModal(c.telefono, nom, () => { fichaSig = ''; leerActivo(); });
     activarAnual(f, c, () => { fichaSig = ''; leerActivo(); });
+    pintarDocs($('fDocs'), c.telefono);
     f.querySelectorAll('[data-qetq]').forEach((b) => (b.onclick = async () => { await DEL(`/api/contactos/${c.telefono}/etiquetas/${b.dataset.qetq}`).catch(() => {}); fichaSig = ''; leerActivo(); }));
   }
   const recargar = () => { fichaSig = ''; leerActivo(); };
@@ -1616,6 +1619,34 @@ function renovarModal(c, tipo, listo) {
       } catch (e) { $('aErr').textContent = e.message; }
     };
   });
+}
+
+// ---------------- Documentos de clientes (carpeta del escritorio) ----------------
+const kb = (n) => (n >= 1048576 ? (n / 1048576).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' kB');
+const icoDoc = (n) => { const e = (String(n).split('.').pop() || '').toLowerCase(); return e === 'pdf' ? ['PDF', 'pdf'] : /^(jpe?g|png|webp|heic|gif)$/.test(e) ? ['IMG', 'img'] : /^(docx?|xlsx?|odt)$/.test(e) ? [e.slice(0, 3).toUpperCase(), 'ofi'] : ['DOC', 'otro']; };
+async function pintarDocs(el, tel) {
+  if (!el) return;
+  const d = await GET('/api/documentos/' + tel).catch(() => ({ archivos: [] }));
+  if (!d.archivos.length) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<span class="small muted" style="font-weight:700">Documentos (${d.archivos.length})</span>${d.archivos.slice(0, 8).map((a) => { const [t, k] = icoDoc(a.nombre); return `<button type="button" class="docit" data-doc="${esc(a.nombre)}" title="Abrir"><span class="dico ${k}">${t}</span><span class="grow ell">${esc(a.nombre)}<span class="small muted"> · ${esc(cuando(a.fecha))} · ${kb(a.tam)}</span></span></button>`; }).join('')}${d.archivos.length > 8 ? `<span class="small muted">y ${d.archivos.length - 8} más en la carpeta</span>` : ''}<button class="btn sm" data-docdir>Abrir carpeta</button>`;
+  el.querySelectorAll('[data-doc]').forEach((b) => (b.onclick = () => POST(`/api/documentos/${tel}/abrir`, { nombre: b.dataset.doc }).catch((e) => toast(e.message))));
+  el.querySelector('[data-docdir]').onclick = () => POST(`/api/documentos/${tel}/abrir`).catch((e) => toast(e.message));
+}
+// Aviso al guardar un documento, con la opción de mandarlo a Descargas si no era del cliente
+let docVisto = null;
+function avisoDocumento(d) {
+  if (!d) return;
+  if (docVisto === null) { docVisto = d.id; return; }   // al abrir el programa no se repite el último aviso
+  if (d.id === docVisto) return;
+  docVisto = d.id;
+  const el = $('docAviso'); clearTimeout(avisoDocumento._t);
+  el.innerHTML = `<span>✓ Guardado en la carpeta de <b>${esc(d.cliente)}</b><span class="small"> · ${esc(d.archivo)}</span></span><button class="btn sm" id="daMover">Mover a Descargas</button><button class="lnk" id="daX" aria-label="Cerrar">×</button>`;
+  el.hidden = false;
+  $('daX').onclick = () => { el.hidden = true; };
+  $('daMover').onclick = async () => { try { await POST('/api/documentos/mover-a-descargas', { ruta: d.ruta }); el.hidden = true; toast('Movido a Descargas'); fichaSig = ''; if (current === 'chats') leerActivo(); } catch (e) { toast(e.message); } };
+  avisoDocumento._t = setTimeout(() => { el.hidden = true; }, 12000);
+  if (current === 'chats') { fichaSig = ''; leerActivo(); }
 }
 
 // ---------------- Tema de color ----------------

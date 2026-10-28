@@ -1,5 +1,6 @@
 const { app, BrowserWindow, WebContentsView, ipcMain, session, dialog, shell, Tray, Menu, nativeImage, Notification, nativeTheme } = require('electron');
 const TEMAS = require('./temas');
+const DOCS = require('./documentos');
 const PKG = require('./package.json');
 const path = require('path');
 const fs = require('fs');
@@ -166,7 +167,52 @@ app.whenReady().then(async () => {
   leerPuerto().catch(() => {});
   const embebido = { puerto: leerPuerto, recargar: () => waView.webContents.loadURL('about:blank#crmwa') };
 
-  srv = await require('./server').start({ dataDir, browserPaths, version: app.getVersion(), notify, updater, embebido });
+  // Carpeta «Clientes CRM HERMES» del escritorio, con su ícono propio (se vuelve a crear si la borran)
+  const raizDocs = () => path.join(app.getPath('desktop'), DOCS.RAIZ_NOMBRE);
+  function prepararRaizDocs() {
+    const raiz = raizDocs();
+    if (fs.existsSync(path.join(raiz, 'desktop.ini'))) return raiz;
+    fs.mkdirSync(raiz, { recursive: true });
+    try {
+      fs.copyFileSync(path.join(__dirname, 'build', 'carpeta.ico'), path.join(raiz, 'carpeta.ico'));
+      fs.writeFileSync(path.join(raiz, 'desktop.ini'), DOCS.desktopIni());
+      if (process.platform === 'win32') {
+        const { execFile } = require('child_process');
+        execFile('attrib', ['+h', '+s', path.join(raiz, 'desktop.ini')], () => {});
+        execFile('attrib', ['+h', '+s', path.join(raiz, 'carpeta.ico')], () => {});
+        execFile('attrib', ['+r', raiz], () => {});
+      }
+    } catch {}
+    return raiz;
+  }
+  const docs = { raiz: raizDocs, descargas: () => app.getPath('downloads'), abrir: (p) => shell.openPath(p) };
+
+  srv = await require('./server').start({ dataDir, browserPaths, version: app.getVersion(), notify, updater, embebido, docs });
+
+  // Lo que se descarga desde un chat de WhatsApp va a la carpeta de ese cliente (sin cliente del CRM: «Sin asignar»).
+  // Se guarda primero aparte y al terminar se mueve, porque saber qué chat está abierto toma un momento
+  const tmpDocs = path.join(app.getPath('userData'), 'descargas-en-curso');
+  waSes.on('will-download', (e, item) => {
+    try {
+      fs.mkdirSync(tmpDocs, { recursive: true });
+      const nombre = item.getFilename() || 'documento';
+      const tmp = path.join(tmpDocs, Date.now() + '-' + Math.random().toString(36).slice(2, 8) + path.extname(nombre));   // nombre único: dos descargas iguales no chocan
+      item.setSavePath(tmp);
+      const chat = srv.chatActivo();
+      item.once('done', async (ev, estado) => {
+        if (estado !== 'completed') { try { fs.unlinkSync(tmp); } catch {} return; }
+        try {
+          const a = await chat, raiz = prepararRaizDocs();
+          const sub = DOCS.carpetaDe(a && a.telefono, a && a.contacto, fs.readdirSync(raiz));
+          const dir = path.join(raiz, sub); fs.mkdirSync(dir, { recursive: true });
+          const final = DOCS.rutaLibre(dir, nombre, fs.existsSync);
+          try { fs.renameSync(tmp, final); } catch { fs.copyFileSync(tmp, final); fs.unlinkSync(tmp); }
+          const c = a && a.contacto;
+          srv.documentoGuardado({ ruta: final, archivo: path.basename(final), telefono: c ? a.telefono : null, cliente: c ? ([c.nombre, c.apellido].filter(Boolean).join(' ') || DOCS.telBonito(a.telefono)) : DOCS.SIN_ASIGNAR });
+        } catch (err) { console.error('documento:', err); }
+      });
+    } catch (err) { console.error('descarga:', err); }
+  });
 
   // Tema de color con que se abre: el último que usó la pantalla (así no hay destello claro de noche)
   const temaIni = TEMAS.BARRA[prefs.tema] ? prefs.tema : 'claro';

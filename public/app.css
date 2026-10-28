@@ -425,3 +425,16 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .abar{height:8px;border-radius:99px;background:var(--sand2);overflow:hidden}
 .abar span{display:block;height:100%;background:var(--green);border-radius:99px}
 .ahist{display:flex;flex-direction:column;gap:2px;border-left:2px solid var(--line);padding-left:8px;margin-top:4px}
+
+/* Documentos del cliente */
+.docs{gap:4px}
+.docit{display:flex;align-items:center;gap:8px;width:100%;padding:5px 6px;border:0;border-radius:10px;background:transparent;color:var(--text);text-align:left;font-size:13px}
+.docit:hover{background:var(--sand)}
+.dico{flex-shrink:0;width:28px;height:32px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;background:#8A7A6A}
+.dico.pdf{background:#C2463A}.dico.img{background:#3F6E8C}.dico.ofi{background:#2F6B4A}
+.docs .btn{align-self:flex-start;margin-top:4px}
+.docaviso{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:70;display:flex;align-items:center;gap:12px;max-width:min(640px,92vw);padding:10px 12px 10px 18px;border-radius:16px;background:var(--green);color:var(--on-green);box-shadow:0 12px 30px rgba(var(--sombra),.25);font-size:14px}
+.docaviso .btn{background:var(--paper);color:var(--text);border-color:transparent}
+.docaviso .lnk{color:inherit;font-size:20px;line-height:1}
+.ventana .docaviso{top:50px}
+.ventana .fiesta.franja .fban{top:50px}
