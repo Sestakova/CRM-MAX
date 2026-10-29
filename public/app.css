@@ -455,3 +455,6 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 @keyframes cfIn{from{opacity:0}to{opacity:1}}
 @keyframes cfPop{from{transform:scale(.96);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.confirmar,.confirmar .cbox{animation:none}}
+
+/* Métricas desactivada en Configuración: no se muestra su círculo */
+body.sin-metricas #metBtn{display:none}

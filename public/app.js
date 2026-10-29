@@ -208,6 +208,7 @@ window.addEventListener('resize', () => layout());
 if (window.ResizeObserver) new ResizeObserver(() => { layout(); syncVista(true); }).observe($('stage'));
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) { e.preventDefault(); go(b.dataset.go); } });
 function go(id) {
+  if (id === 'metricas' && UI.metricas !== true) id = 'inicio';
   if (!YO) return;
   if (id === 'inicio' && current === 'inicio') return actualizarHub();
   document.querySelectorAll('.emojipop').forEach((x) => x.remove());
@@ -232,8 +233,6 @@ async function actualizarHub() {
   const d = await GET('/api/inicio').catch(() => null); if (!d) return; HUB = d;
   const h = new Date().getHours();
   $('saludo').textContent = h < 12 ? 'Buenos días' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
-  const pend = (EST?.avisos?.campana || 0) + d.sin24.length + d.leads.sinProx;
-  $('pendHoy').textContent = pend ? `${pend} cosa${pend === 1 ? '' : 's'} para hoy` : 'Todo al día · ver tu día';
   pintarDatos();
 }
 function pintarDatos() {
@@ -256,7 +255,7 @@ function pintarDatos() {
   }
 }
 async function guardarUI(cambios) { Object.assign(UI, cambios); await PUT('/api/config/ui', { valor: { ...UI } }).catch(() => {}); }
-function aplicarUI() { document.body.classList.toggle('sin-desc', UI.desc === false); layout(); }
+function aplicarUI() { document.body.classList.toggle('sin-desc', UI.desc === false); document.body.classList.toggle('sin-metricas', UI.metricas !== true); if (UI.metricas !== true && current === 'metricas') go('inicio'); layout(); }
 $('consejoOk').onclick = () => { $('consejo').hidden = true; mostrarConsejo = false; guardarUI({ consejosVistos: 99 }); };
 
 // ---------------- Estado en vivo ----------------
@@ -1258,6 +1257,8 @@ async function loadConfig() {
   $('uDesc').checked = UI.desc !== false; $('uCons').checked = UI.consejo !== false;
   $('uDesc').onchange = () => { guardarUI({ desc: $('uDesc').checked }); aplicarUI(); };
   $('uCons').onchange = () => guardarUI({ consejo: $('uCons').checked, consejosVistos: 0 });
+  $('uMet').checked = UI.metricas === true;
+  $('uMet').onchange = () => { guardarUI({ metricas: $('uMet').checked }); aplicarUI(); toast($('uMet').checked ? 'Métricas activada: el círculo está abajo a la derecha' : 'Métricas desactivada'); };
   $('uEst').value = CFG.estancado?.dias || 5;
   $('uEst').onchange = async () => { const n = Math.max(1, Math.min(60, parseInt($('uEst').value) || 5)); $('uEst').value = n; await PUT('/api/config/estancado', { valor: { dias: n } }); loadPipeline.sig = ''; toast(`Un lead se marca estancado después de ${n} días`); };
   const r = CFG.reglas, H = [['lv', 'Lunes a viernes'], ['sab', 'Sábado'], ['dom', 'Domingo']];
@@ -1551,7 +1552,7 @@ function esqueleto() {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('on'));
   ['iTiles', 'iChats', 'iRec', 'iSinProx', 'iEst', 'iProg', 'iSalud', 'cFicha', 'waBar', 'board', 'lBody', 'mBody', 'eChips', 'qLog'].forEach((id) => { if ($(id)) $(id).innerHTML = ''; });
   for (const el of $('sats').children) { el.querySelector('.dato').textContent = ''; el.querySelector('.bdg').hidden = true; }
-  $('pendHoy').textContent = 'Ver tu día'; $('saludo').textContent = 'Hola';
+  $('saludo').textContent = 'Hola';
   ['ufHoy', 'waTxt', 'hoyTxt'].forEach((id) => ($(id).textContent = '—'));
   $('waBanner').hidden = true; $('consejo').hidden = true;
   cerrarPops(); $('bienvenida').hidden = true;
@@ -1583,6 +1584,8 @@ async function entrar() {
   $('lock').classList.add('off'); document.body.classList.remove('locked');
   ultimaRespuesta = Date.now(); avisoBloqueo = false;
   try { CFG = await GET('/api/config'); Object.assign(UI, CFG.ui || {}); } catch {}
+  // Métricas es opcional (Configuración → Ayudas en pantalla): apagada para quien instala recién; encendida para quien ya venía usándola
+  if (UI.metricas === undefined && CFG) guardarUI({ metricas: !!UI.versionVista });
   aplicarUI(); cargarTema(CFG && CFG.apariencia);
   // Consejo de uso: solo las primeras veces que abres el programa
   const vistos = UI.consejosVistos || 0;
