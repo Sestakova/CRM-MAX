@@ -2,7 +2,7 @@
 
 Programa de escritorio (Electron) para Windows: CRM de leads de Isapre con WhatsApp Web integrado, pipeline, envíos masivos, leads de Meta y mensajes automáticos. Usuario: Jesús Bustamante. Todo en español, textos simples y directos.
 
-Versión actual publicada: **4.3.2** (código de esta carpeta).
+Versión actual publicada: **4.3.3** (código de esta carpeta).
 
 ## Estructura
 
