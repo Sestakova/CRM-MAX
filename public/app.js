@@ -204,6 +204,8 @@ function layout() {
   $('bConfig').classList.toggle('on', current === 'config');
 }
 window.addEventListener('resize', () => layout());
+// El escenario cambia de alto sin que cambie la ventana (p. ej. aparece o se va el aviso de WhatsApp): se vuelve a ubicar la barra y la vista de WhatsApp
+if (window.ResizeObserver) new ResizeObserver(() => { layout(); syncVista(true); }).observe($('stage'));
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) { e.preventDefault(); go(b.dataset.go); } });
 function go(id) {
   if (!YO) return;
