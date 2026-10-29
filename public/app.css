@@ -458,3 +458,25 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 
 /* Métricas desactivada en Configuración: no se muestra su círculo */
 body.sin-metricas #metBtn{display:none}
+
+/* Pantalla de bloqueo de vidrio: deja ver el CRM detrás, desenfocado y con tinte verde (al bloquear, la pantalla queda sin datos).
+   Usa sus propios colores claros sobre el vidrio, iguales en los cuatro temas */
+body.locked .app{filter:none}
+.lock{--lk-tx:#F6ECDA;--lk-mu:rgba(246,236,218,.72);--lk-acc:#EB9475;background:linear-gradient(135deg,rgba(47,74,60,.32),rgba(24,21,18,.18));backdrop-filter:blur(12px) saturate(1.3);-webkit-backdrop-filter:blur(12px) saturate(1.3)}
+:root:not([data-tema="oscuro"]) .lock{background:linear-gradient(135deg,rgba(47,74,60,.62),rgba(36,57,46,.48))}
+.lock-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.20);backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);box-shadow:0 24px 70px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.22);color:var(--lk-tx)}
+.lock-card p{color:var(--lk-mu)}
+.lock-card .lk-err{color:#FF9A90}
+.lock .dots i{border-color:rgba(246,236,218,.6)}
+.lock .dots i.on{background:#D9734F;border-color:#D9734F}
+.lock .pad button{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.18);color:var(--lk-tx)}
+.lock .pad button:hover{background:rgba(255,255,255,.14)}
+.lock .pad button:active{background:#D9734F;color:#1C1410}
+.lock .pad button.txt{background:transparent;border-color:transparent;color:var(--lk-acc)}
+.lock .pad button.txt:hover{background:rgba(255,255,255,.08)}
+.lock-card input.lk{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:var(--lk-tx)}
+.lock-card input.lk::placeholder{color:var(--lk-mu)}
+.lock-card .lkbtn{background:#D9734F;color:#1C1410}
+.lock-card .lklink{color:var(--lk-acc)}
+.lock .codigo{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:var(--lk-tx)}
+.lock-card img.lg{box-shadow:0 0 0 1px rgba(255,255,255,.22),0 8px 20px rgba(0,0,0,.25)}
