@@ -51,6 +51,20 @@ function modal(html, onReady, alCerrar) {
   if (onReady) onReady($('modalBox'), close);
   return close;
 }
+// Pregunta con la estética del CRM (en vez de la ventana gris de Windows). Va encima de cualquier otro cuadro abierto
+function confirmar(texto, { titulo = '¿Seguro?', si = 'Aceptar', no = 'Cancelar', peligro = false } = {}) {
+  return new Promise((listo) => {
+    const el = $('confirmar');
+    el.innerHTML = `<div class="cbox" role="alertdialog" aria-modal="true" aria-labelledby="cfT" aria-describedby="cfX"><span class="eyebrow">CRM HERMES</span><h3 id="cfT">${esc(titulo)}</h3>${texto ? `<p id="cfX">${esc(texto)}</p>` : ''}<div class="cbtn"><button class="btn" id="cfNo">${esc(no)}</button><button class="btn ${peligro ? 'peligro' : 'pri'}" id="cfSi">${esc(si)}</button></div></div>`;
+    el.hidden = false; const tapaba = document.body.classList.contains('tapado'); document.body.classList.add('tapado'); syncVista(true);
+    const fin = (v) => { document.removeEventListener('keydown', tecla, true); el.hidden = true; el.innerHTML = ''; if (!tapaba) { document.body.classList.remove('tapado'); syncVista(true); } listo(v); };
+    const tecla = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fin(false); } };
+    document.addEventListener('keydown', tecla, true);
+    $('cfSi').onclick = () => fin(true); $('cfNo').onclick = () => fin(false);
+    el.onclick = (e) => { if (e.target === el) fin(false); };
+    (peligro ? $('cfNo') : $('cfSi')).focus();   // en lo que borra o cancela, Enter no confirma por error
+  });
+}
 // Clic fuera o Escape cierran el cuadro como si apretaras Cancelar
 $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && modal._cerrar) modal._cerrar(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('modal').hidden && modal._cerrar) { e.preventDefault(); modal._cerrar(); } });
@@ -79,7 +93,7 @@ async function etiquetaModal(tel, nombre, listo) {
     const mias = new Set((await GET('/api/contactos?limite=1&q=' + tel).catch(() => ({ contactos: [] }))).contactos.filter((c) => c.telefono === tel).flatMap((c) => (c.etiquetas || []).map((e) => e.id)));
     box.querySelector('#eqLista').innerHTML = ETQS.length ? ETQS.map((e) => `<span class="eqit"><button type="button" class="chip ${mias.has(e.id) ? 'on' : ''}" data-eqt="${e.id}" aria-pressed="${mias.has(e.id)}">${chipEtq(e)}</button><button type="button" class="lnk small" data-eqb="${e.id}" title="Borrar esta etiqueta de todos los contactos">borrar</button></span>`).join('') : '<span class="small muted">Todavía no tienes etiquetas. Crea la primera abajo.</span>';
     box.querySelectorAll('[data-eqt]').forEach((b) => (b.onclick = async () => { const id = b.dataset.eqt; await (mias.has(+id) ? DEL(`/api/contactos/${tel}/etiquetas/${id}`) : POST(`/api/contactos/${tel}/etiquetas`, { id: +id })).catch((e) => toast(e.message)); pintar(box); }));
-    box.querySelectorAll('[data-eqb]').forEach((b) => (b.onclick = async () => { const e = ETQS.find((x) => x.id === +b.dataset.eqb); if (!confirm(`¿Borrar la etiqueta «${e.nombre}»? Se quita de ${e.usos} contacto${e.usos === 1 ? '' : 's'}.`)) return; await DEL('/api/etiquetas/' + e.id).catch(() => {}); pintar(box); }));
+    box.querySelectorAll('[data-eqb]').forEach((b) => (b.onclick = async () => { const e = ETQS.find((x) => x.id === +b.dataset.eqb); if (!(await confirmar(`Se quita de ${e.usos} contacto${e.usos === 1 ? '' : 's'}.`, { titulo: `¿Borrar la etiqueta «${e.nombre}»?`, si: 'Borrar', peligro: true }))) return; await DEL('/api/etiquetas/' + e.id).catch(() => {}); pintar(box); }));
   };
   modal(`<span class="eyebrow">Etiquetas</span><h3>${esc(nombre)}</h3><span class="small muted">Toca una etiqueta para ponerla o sacarla.</span><div class="chips" id="eqLista"></div>
     <div class="glass card" style="padding:14px;gap:10px"><b>Nueva etiqueta</b><input id="eqNom" maxlength="40" placeholder="Ej: 2 cargas, embarazo, Fonasa → Isapre"><div class="chips" id="eqCol">${ETQ_COLORES.map((c, i) => `<button type="button" class="eqcol c-${c} ${i ? '' : 'on'}" data-c="${c}" aria-label="Color ${i + 1}"></button>`).join('')}</div><div style="display:flex;justify-content:flex-end"><button class="btn" id="eqCrear">Crear y poner</button></div></div>
@@ -332,8 +346,8 @@ function pintarUpBarra(u) {
   } else {
     el.className = 'upbarra lista';
     el.innerHTML = `<span class="ell">✓ La versión ${esc(u.version)} está lista</span><button class="btn pri sm" id="upYa">Reiniciar y actualizar</button>`;
-    $('upYa').onclick = () => {
-      if (!confirm('Se cerrará todo el programa (también WhatsApp) y volverá a abrir solo con la versión nueva. ¿Seguir?')) return;
+    $('upYa').onclick = async () => {
+      if (!(await confirmar('Se cerrará todo el programa, también WhatsApp, y volverá a abrir solo con la versión nueva.', { titulo: 'Reiniciar y actualizar', si: 'Reiniciar ahora' }))) return;
       $('upYa').disabled = true; $('upYa').textContent = 'Reiniciando…'; POST('/api/actualizacion/instalar').catch(() => {});
     };
   }
@@ -393,7 +407,7 @@ function contactoModal(c = {}, onSaved) {
     if (!nuevo) {
       $('mChat').onclick = () => { close(); openChat(c.telefono); };
       $('mLlam').onclick = () => { close(); llamadaModal(c.telefono, nombreDe(c), null, onSaved); };
-      if ($('mDel')) $('mDel').onclick = async () => { if (!confirm('¿Eliminar este contacto? Los mensajes del chat se mantienen.')) return; await DEL('/api/contactos/' + c.telefono); close(); onSaved && onSaved(); };
+      if ($('mDel')) $('mDel').onclick = async () => { if (!(await confirmar('Los mensajes del chat se mantienen.', { titulo: '¿Eliminar este contacto?', si: 'Eliminar', peligro: true }))) return; await DEL('/api/contactos/' + c.telefono); close(); onSaved && onSaved(); };
     }
     $('mSave').onclick = async () => {
       const campos = { nombre: $('mN').value, apellido: $('mA').value, edad: $('mE').value, renta: $('mR').value, cargas: $('mC').value, isapre: $('mI').value, etapa: $('mEt').value, calificacion: $('mCa').value, motivo_perdida: $('mEt').value === 'Perdido' ? $('mMo').value : '' };
@@ -521,7 +535,7 @@ function pintarFicha(d) {
   f.querySelectorAll('[data-rok]').forEach((b) => (b.onclick = async () => { await POST('/api/recordatorios/' + b.dataset.rok + '/listo'); recargar(); }));
   f.querySelectorAll('[data-lre]').forEach((b) => (b.onclick = () => llamadaModal(ch.telefono, nom, { id: b.dataset.lre, fecha: b.dataset.f, opciones: b.dataset.op }, recargar)));
   f.querySelectorAll('[data-lok]').forEach((b) => (b.onclick = async () => { await POST('/api/llamadas/' + b.dataset.lok + '/hecha'); toast('Llamada marcada como hecha'); recargar(); }));
-  f.querySelectorAll('[data-lx]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Cancelar esta llamada? El recordatorio al cliente ya no saldrá.')) return; await POST('/api/llamadas/' + b.dataset.lx + '/cancelar'); toast('Llamada cancelada'); recargar(); }));
+  f.querySelectorAll('[data-lx]').forEach((b) => (b.onclick = async () => { if (!(await confirmar('El recordatorio al cliente ya no saldrá.', { titulo: '¿Cancelar esta llamada?', si: 'Cancelar llamada', no: 'Volver', peligro: true }))) return; await POST('/api/llamadas/' + b.dataset.lx + '/cancelar'); toast('Llamada cancelada'); recargar(); }));
 }
 // Agendar (o reagendar) una llamada: eliges la hora y qué se envía. Lo marcado queda para la próxima
 function llamadaModal(tel, nombre, llamada, listo) {
@@ -673,7 +687,7 @@ $('pFilG').onclick = () => modal(`<span class="eyebrow">Pipeline</span><h3>Guard
   };
   box.querySelector('#fgNom').onkeydown = (e) => { if (e.key === 'Enter') box.querySelector('#fgOk').click(); };
 });
-$('pFilX').onclick = async () => { const i = +$('pFil').value; const x = (UI.filtros || [])[i]; if (!x || !confirm(`¿Borrar el filtro «${x.nombre}»?`)) return; await guardarUI({ filtros: UI.filtros.filter((_, j) => j !== i) }); $('pFil').value = ''; pintarFiltros(); };
+$('pFilX').onclick = async () => { const i = +$('pFil').value; const x = (UI.filtros || [])[i]; if (!x || !(await confirmar('Los contactos no cambian; solo se borra el filtro guardado.', { titulo: `¿Borrar el filtro «${x.nombre}»?`, si: 'Borrar' }))) return; await guardarUI({ filtros: UI.filtros.filter((_, j) => j !== i) }); $('pFil').value = ''; pintarFiltros(); };
 $('pQ').oninput = () => { clearTimeout(loadPipeline._t); loadPipeline._t = setTimeout(loadPipeline, 250); };
 $('pNuevo').onclick = () => contactoModal({}, loadPipeline);
 $('pEst').onchange = () => { $('pFil').value = ''; $('pFilX').hidden = true; loadPipeline(); };
@@ -965,7 +979,7 @@ async function renderProgramados() {
   $('eProgCard').hidden = !d.programados.length;
   $('eProgList').innerHTML = d.programados.length ? d.programados.map((p) => `<div class="li" style="flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between;gap:10px"><b>${esc(p.nombre)}</b><span class="pill p-mut">Programada</span></div><span class="small muted ell">${fechaLarga(p.fecha)} · ${p.total} contactos${p.extra && p.extra.versiones ? ` · ${p.extra.versiones.length} versiones` : ''}${p.extra && p.extra.adjunto ? ' · 📎' : ''}${p.extra && p.extra.segundo ? ' · 2 mensajes' : ''} · ${esc(p.texto)}</span><div style="display:flex;gap:14px"><button class="btn" data-pl="${p.id}">Ver lista</button><button class="btn" data-pe="${p.id}">Editar</button><button class="btn danger" data-pc="${p.id}">Cancelar</button></div></div>`).join('') : '';
   $('eProgList').querySelectorAll('[data-pl]').forEach((b) => (b.onclick = () => verProgramado(parseInt(b.dataset.pl))));
-  $('eProgList').querySelectorAll('[data-pc]').forEach((b) => (b.onclick = async () => { if (confirm('¿Cancelar este envío programado?')) { await DEL('/api/programados/' + b.dataset.pc); renderProgramados(); } }));
+  $('eProgList').querySelectorAll('[data-pc]').forEach((b) => (b.onclick = async () => { if (await confirmar('No saldrá a la hora programada.', { titulo: '¿Cancelar este envío programado?', si: 'Cancelar envío', no: 'Volver', peligro: true })) { await DEL('/api/programados/' + b.dataset.pc); renderProgramados(); } }));
   $('eProgList').querySelectorAll('[data-pe]').forEach((b) => (b.onclick = () => { const p = d.programados.find((x) => x.id == b.dataset.pe); const fp = new Date(p.fecha); const loc = new Date(fp - fp.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     modal(`<h3>Editar envío programado</h3><label class="f">Nombre<input type="text" id="pN" value="${esc(p.nombre)}"></label><label class="f">Fecha y hora<input type="datetime-local" id="pF" value="${loc}"></label><label class="f">Mensaje<textarea id="pT" rows="6">${esc(p.texto)}</textarea></label><div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" data-close>Cancelar</button><button class="btn pri" id="pS">Guardar</button></div>`, (bx, close) => {
       $('pS').onclick = async () => { const f = new Date($('pF').value); if (isNaN(f)) return; await PATCH('/api/programados/' + p.id, { nombre: $('pN').value, texto: $('pT').value, fecha: f.toISOString() }); close(); renderProgramados(); };
@@ -1035,7 +1049,7 @@ async function verTanda(id, pestana = 'pend') {
     };
     $('tvAcc').onclick = async (e) => {
       if (e.target.id === 'tvPausa') { await POST(`/api/tandas/${id}/pausa`, { pausada: !d.tanda.pausada }).catch((er) => toast(er.message)); recargar(); }
-      if (e.target.id === 'tvCancel') { if (!confirm('¿Cancelar los mensajes que faltan de este grupo? Los que ya salieron no cambian.')) return; await POST(`/api/tandas/${id}/cancelar`).catch((er) => toast(er.message)); recargar(); }
+      if (e.target.id === 'tvCancel') { if (!(await confirmar('Los que ya salieron no cambian.', { titulo: '¿Cancelar los mensajes que faltan de este grupo?', si: 'Cancelar grupo', no: 'Volver', peligro: true }))) return; await POST(`/api/tandas/${id}/cancelar`).catch((er) => toast(er.message)); recargar(); }
     };
     // Arrastrar desde ≡: se suelta arriba o abajo de otra fila pendiente y el orden se guarda al tiro
     const lista = $('tvLista');
@@ -1091,7 +1105,7 @@ function renderCola() {
 }
 $('qPause').onclick = async () => { await POST('/api/cola/pausa', { pausada: !EST.cola.pausada }); poll(); };   // solo los envíos masivos: los seguimientos se pausan en Automáticos
 $('qCancel').onclick = async () => {
-  if (!confirm('¿Cancelar todos los envíos masivos pendientes? Los seguimientos automáticos se manejan en Automáticos.')) return;
+  if (!(await confirmar('Los seguimientos automáticos se manejan aparte, en Automáticos.', { titulo: '¿Cancelar todos los envíos masivos pendientes?', si: 'Cancelar envíos', no: 'Volver', peligro: true }))) return;
   await POST('/api/cola/cancelar'); await poll();
   toast('Envíos cancelados.' + (EST.auto && EST.auto.pendientes ? ` Los ${EST.auto.pendientes} seguimientos siguen en Automáticos.` : ''), 5000);
 };
@@ -1138,7 +1152,7 @@ async function renderColaAuto(forzar) {
     <div id="acLista" class="aclista" ${colaAutoAbierta && a.pendientes ? '' : 'hidden'}></div>`;
   $('acPausa').onclick = async () => { await POST('/api/auto/pausa', { pausada: !a.pausada }); await poll(); renderColaAuto(true); };
   if ($('acCancel')) $('acCancel').onclick = async () => {
-    if (!confirm(`¿Cancelar los ${a.pendientes} mensajes automáticos que esperan? Esas personas salen de la secuencia de seguimiento.`)) return;
+    if (!(await confirmar('Esas personas salen de la secuencia de seguimiento.', { titulo: `¿Cancelar los ${a.pendientes} mensajes automáticos que esperan?`, si: 'Cancelar mensajes', no: 'Volver', peligro: true }))) return;
     const r = await POST('/api/auto/cancelar').catch((e) => { toast(e.message); return null; }); await poll(); renderColaAuto(true); if (r) toast(`Se cancelaron ${r.n} mensajes automáticos`);
   };
   if ($('acVer')) $('acVer').onclick = () => { colaAutoAbierta = !colaAutoAbierta; renderColaAuto(true); };
@@ -1169,7 +1183,7 @@ async function renderAgendados() {
       <div class="grow" style="min-width:0"><b>${nombres(a.destinatarios)}</b>${etq ? ` <span class="pill p-mut">${etq}</span>` : ''}<div class="small muted ell">${a.adjuntoInfo ? '📎 ' : ''}${esc(a.texto || (a.adjuntoInfo ? a.adjuntoInfo.nombre : ''))}</div></div>
       ${pend ? `<button class="btn sm" data-age="${a.id}">Editar</button><button class="btn sm" data-agc="${a.id}">Cancelar</button>` : ''}</div>`;
   }).join('') : '<div class="empty">No hay mensajes agendados. Usa "Agendar mensaje" para avisarle algo a un cliente en una fecha y hora.</div>';
-  $('agList').querySelectorAll('[data-agc]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Cancelar este mensaje agendado?')) return; await DEL('/api/agendados/' + b.dataset.agc); renderAgendados(); }));
+  $('agList').querySelectorAll('[data-agc]').forEach((b) => (b.onclick = async () => { if (!(await confirmar('No saldrá en la fecha agendada.', { titulo: '¿Cancelar este mensaje agendado?', si: 'Cancelar mensaje', no: 'Volver', peligro: true }))) return; await DEL('/api/agendados/' + b.dataset.agc); renderAgendados(); }));
   $('agList').querySelectorAll('[data-age]').forEach((b) => (b.onclick = () => agendarModal(d.agendados.find((x) => x.id == b.dataset.age))));
 }
 function agendarModal(a) {
@@ -1272,7 +1286,7 @@ function renderWaCard(force) {
     const lineas = t.split('\n').filter((l) => l.startsWith('[')).slice(-150).reverse().join('\n');
     modal(`<h3>Registro técnico</h3><span class="small muted">Lo más reciente arriba. Sirve para revisar fallas de conexión.</span><pre class="logpre">${esc(lineas || 'Sin registros')}</pre><div style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" id="lgCopy">Copiar</button><button class="btn pri" data-close>Cerrar</button></div>`, (b) => { b.classList.add('wide2'); $('lgCopy').onclick = () => navigator.clipboard.writeText(lineas).then(() => toast('Registro copiado')); });
   };
-  if ($('wOut')) $('wOut').onclick = () => { if (confirm('¿Desvincular este número del programa?')) POST('/api/cerrar-sesion'); };
+  if ($('wOut')) $('wOut').onclick = async () => { if (await confirmar('Para volver a usarlo tendrás que escanear el código QR con tu celular.', { titulo: '¿Desvincular este número del programa?', si: 'Desvincular', peligro: true })) POST('/api/cerrar-sesion'); };
 }
 $('rSave').onclick = async () => {
   const r = CFG.reglas; const okH = (s) => /^\d{1,2}:\d{2}$/.test(s);
@@ -1290,7 +1304,7 @@ function renderUp() {
   const txt = !u ? 'Las actualizaciones automáticas se activan cuando el programa esté publicado en GitHub.' : { buscando: 'Buscando actualizaciones…', descargando: `Bajando la versión ${u.version || ''}${u.progreso != null ? ' · ' + u.progreso + '%' : ''}${u.tipo === 'liviana' ? ' (actualización liviana)' : ''}…`, lista: `Versión ${u.version} lista: toca «Reiniciar y actualizar».`, aldia: 'Estás en la última versión.', error: 'No se pudo revisar (sin internet o sin publicar).', inactivo: 'Actualizaciones automáticas no configuradas todavía.' }[u.estado] || '';
   $('kUp').innerHTML = `<h2>Actualizaciones</h2><div style="display:flex;align-items:center;gap:12px">${LOGO_SVG(40)}<div><b style="font-family:var(--serif);letter-spacing:.06em">CRM HERMES</b><div class="small muted">Conecta Salud</div></div></div><div class="kv"><span>Versión instalada</span><b>${esc(EST?.version || '')}</b></div><span class="small muted">${esc(txt)}</span><div style="display:flex;gap:8px">${u && u.estado === 'lista' ? '<button class="btn pri" id="uI">Reiniciar y actualizar</button>' : ''}${u && u.estado !== 'inactivo' ? '<button class="btn" id="uB">Buscar ahora</button>' : ''}</div>`;
   if ($('uB')) $('uB').onclick = async () => { await POST('/api/actualizacion/buscar'); toast('Buscando…'); setTimeout(() => { poll().then(renderUp); }, 3000); };
-  if ($('uI')) $('uI').onclick = () => { if (!confirm('Se cerrará todo el programa (también WhatsApp) y volverá a abrir solo con la versión nueva. ¿Seguir?')) return; POST('/api/actualizacion/instalar').catch(() => {}); };
+  if ($('uI')) $('uI').onclick = async () => { if (!(await confirmar('Se cerrará todo el programa, también WhatsApp, y volverá a abrir solo con la versión nueva.', { titulo: 'Reiniciar y actualizar', si: 'Reiniciar ahora' }))) return; POST('/api/actualizacion/instalar').catch(() => {}); };
 }
 
 // ---------------- Leads de Meta ----------------
@@ -1373,7 +1387,7 @@ function formsModal(m) {
       close(); toast('Formularios guardados'); loadLeads();
     };
     $('fRef').onclick = async () => { try { const r = await POST('/api/meta/formularios'); close(); formsModal(r.meta); } catch (e) { toast(e.message); } };
-    $('fOff').onclick = async () => { if (!confirm('¿Desconectar Meta? Los leads que ya llegaron se mantienen.')) return; await POST('/api/meta/desconectar'); close(); loadLeads(); };
+    $('fOff').onclick = async () => { if (!(await confirmar('Los leads que ya llegaron se mantienen.', { titulo: '¿Desconectar Meta?', si: 'Desconectar', peligro: true }))) return; await POST('/api/meta/desconectar'); close(); loadLeads(); };
   });
 }
 
