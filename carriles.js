@@ -4,15 +4,19 @@
 
 const carril = (carriles, clave) => (carriles[clave] = carriles[clave] || { nextAt: 0, enviadosSesion: 0 });
 
-function elegir({ auto, tandas, carriles, ahora, puedeMasivo }) {
+// Mensajes automáticos (seguimientos y Mensaje 1 de Meta): tienen su propia pausa en Automáticos
+const AUTOMATICOS = ['seguimiento1', 'seguimiento2', 'meta'];
+
+function elegir({ auto, tandas, carriles, ahora, puedeMasivo, pausaMasivos = false, pausaAuto = false }) {
   const listos = [];
   if (auto) {
     const c = carril(carriles, 'auto');
+    const enPausa = AUTOMATICOS.includes(auto.tipo) ? pausaAuto : pausaMasivos;
     // Los agendados salen a su hora: no esperan la pausa ni el horario ni el máximo diario
     if (auto.tipo === 'agendado') listos.push({ clave: 'auto', item: auto, nextAt: -1, id: 0 });
-    else if (puedeMasivo && (c.nextAt || 0) <= ahora) listos.push({ clave: 'auto', item: auto, nextAt: c.nextAt || 0, id: 0 });
+    else if (puedeMasivo && !enPausa && (c.nextAt || 0) <= ahora) listos.push({ clave: 'auto', item: auto, nextAt: c.nextAt || 0, id: 0 });
   }
-  if (puedeMasivo) {
+  if (puedeMasivo && !pausaMasivos) {
     for (const t of tandas) {
       if (!t.item) continue;
       // Un grupo «Después» que recién parte hereda la pausa pendiente del grupo que terminó: no sale pegado a su último mensaje
@@ -39,4 +43,4 @@ function despuesDeEnviar(c, { reglas: r, agendado, ahora, rand }) {
 
 const trasError = (c, ahora) => { c.nextAt = ahora + 15000; };
 
-module.exports = { elegir, despuesDeEnviar, trasError };
+module.exports = { AUTOMATICOS, elegir, despuesDeEnviar, trasError };

@@ -15,3 +15,13 @@ test('seguimientos en pausa se reactivan una sola vez al actualizar', async () =
   const db3 = await baseNueva(carpeta);
   assert.equal(db3.getConfig('secuencia').pausada, true);
 });
+
+test('4.3.1: si la cola estaba en pausa, los automáticos también quedan en pausa', async () => {
+  const { carpetaNueva, esperarGuardado } = require('./ayuda');
+  const dir = carpetaNueva();
+  let db = await baseNueva(dir);
+  db.setConfig('cola_pausada', true); db.setConfig('mig_431_pausa', false);
+  await esperarGuardado();
+  db = await baseNueva(dir);
+  assert.equal(db.getConfig('auto_pausada', false), true);
+});

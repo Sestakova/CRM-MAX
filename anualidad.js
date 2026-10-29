@@ -28,7 +28,8 @@ function estado(desde, hoy = fechaLocal()) {
   const [ya, ma, da] = partes(aniversario), [yh, mh, dh] = partes(hoy);
   const mesesFaltan = Math.max(0, (ya * 12 + ma) - (yh * 12 + mh) - (da < dh ? 1 : 0));
   const total = aDate(aniversario) - aDate(v), pasado = aDate(hoy) - aDate(v);
-  return { desde: v, aniversario, aviso, mesesFaltan, progreso: Math.max(0, Math.min(1, total ? pasado / total : 0)) };
+  const diasFaltan = Math.max(0, Math.round((aDate(aniversario) - aDate(hoy)) / 86400000));
+  return { desde: v, aniversario, aviso, mesesFaltan, diasFaltan, progreso: Math.max(0, Math.min(1, total ? pasado / total : 0)) };
 }
 // Al cambiar de etapa: la anualidad empieza solo la primera vez que entra a Ingresado (si ya tiene, no se reinicia ni se celebra)
 function alCambiarEtapa(antes, despues) {
@@ -37,4 +38,7 @@ function alCambiarEtapa(antes, despues) {
 }
 const textoAviso = ({ nombre, isapre }) => `Aniversario de ${nombre}${isapre ? ` (${isapre})` : ''}: revisar su plan`;
 
-module.exports = { fechaLocal, masAnios, vigente, estado, alCambiarEtapa, textoAviso };
+// AAAA-MM-DD que existe de verdad (no 30 de febrero)
+const fechaValida = (f) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f))) return false; const [y, m, d] = partes(f), x = new Date(y, m - 1, d); return x.getFullYear() === y && x.getMonth() === m - 1 && x.getDate() === d; };
+
+module.exports = { fechaValida, fechaLocal, masAnios, vigente, estado, alCambiarEtapa, textoAviso };

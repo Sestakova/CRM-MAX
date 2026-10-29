@@ -2,7 +2,7 @@
 
 Programa de escritorio (Electron) para Windows: CRM de leads de Isapre con WhatsApp Web integrado, pipeline, envíos masivos, leads de Meta y mensajes automáticos. Usuario: Jesús Bustamante. Todo en español, textos simples y directos.
 
-Versión actual publicada: **4.3.0** (código de esta carpeta).
+Versión actual publicada: **4.3.0** (4.3.1 armada, sin publicar) (código de esta carpeta).
 
 ## Estructura
 
@@ -27,7 +27,7 @@ Versión actual publicada: **4.3.0** (código de esta carpeta).
 - whatsapp-web.js está fijo en **1.34.7** con parches locales (`build/parches`). `npm install` los aplica solo (postinstall). Si se actualiza la librería, revisar los parches.
 - WhatsApp corre dentro de la ventana; whatsapp-web.js se conecta a esa misma vista por el puerto de depuración (`remote-debugging-port 0`, archivo `DevToolsActivePort`).
 - Seguridad del servidor: solo acepta Host 127.0.0.1/localhost con su puerto; rutas sensibles a mayúsculas; todo detrás del PIN.
-- Cola: prioridad agendado > meta > seguimientos > masivo. Los agendados no respetan horario ni límite diario. Tipos `manual`, `fuera_horario`, `agendado`, `resumen` no cuentan para el máximo diario.
+- Cola: prioridad agendado > meta > seguimientos > masivo. Pausas separadas: «Pausar» en Envíos (`cola_pausada`) solo detiene masivos/programados; los seguimientos y el Mensaje 1 de Meta se pausan y cancelan en Automáticos (`auto_pausada`). Los agendados no respetan horario ni límite diario. Tipos `manual`, `fuera_horario`, `agendado`, `resumen` no cuentan para el máximo diario.
 
 ## Comandos
 

@@ -436,3 +436,10 @@ body.locked .app{pointer-events:none;user-select:none;filter:blur(2px)}
 .upbarra > span{flex-shrink:0}
 .upbarra.lista{border-color:var(--green);padding-right:5px}
 .upbarra.lista .btn{white-space:nowrap}
+
+/* Automáticos en cola */
+.aclista{max-height:320px;overflow-y:auto;margin:4px -20px -10px;border-top:1px solid var(--line2)}
+
+/* 4.3.1: las pastillas de calificación y motivo de pérdida se leían gris sobre color en las tarjetas */
+.kcard > .pill{color:var(--on)}
+.kcard > .pill.p-mut{color:var(--muted)}

@@ -22,6 +22,7 @@ const DIAS_MASIVO = 7;
 function avisosDe(d, ahora = new Date()) {
   if (!d) return [];
   const a = [];
+  if (d.enCola) a.push({ clave: 'encola', texto: 'Ya está en la cola de envío', desmarcar: true });   // si no, le llegarían dos mensajes
   if (d.etapa === 'Ingresado') a.push({ clave: 'cliente', texto: 'Ya es cliente', desmarcar: true });
   if (d.ultimo_entrante && new Date(d.ultimo_entrante) >= medianoche(ahora)) a.push({ clave: 'escribio', texto: 'Escribió hoy', desmarcar: true });
   if (d.ultimoMasivo) {
@@ -59,4 +60,12 @@ function estadoTanda({ estado, pausada, pendientes, puedeEnviar = true, bloqueoG
 // Cada usuario con permiso de masivos maneja sus tandas; el administrador, todas
 const puedeManejar = (tanda, { esAdmin, nombre, masivos }) => !!(esAdmin || (masivos && tanda.usuario === nombre));
 
-module.exports = { unirDestinatarios, avisosDe, nombrePorDefecto, escribioHace, estadoTanda, puedeManejar };
+// Texto de la cola cuando no está enviando: en pausa (con lo que espera) o sin nada. null = el texto de siempre
+const NOMBRE_TIPO = { masivo: 'Envío', programado: 'Programado', seguimiento1: 'Seguimiento 1', seguimiento2: 'Seguimiento 2', meta: 'Mensaje 1 (Meta)', agendado: 'Agendado' };
+function estadoCola({ pausada, pendientes, porTipo = [] }) {
+  if (!pausada) return null;
+  if (!pendientes) return 'Sin envíos · la cola está en pausa';
+  return 'En pausa · esperan ' + porTipo.map((t) => `${t.n} ${NOMBRE_TIPO[t.tipo] || t.tipo}`).join(' · ');
+}
+
+module.exports = { unirDestinatarios, avisosDe, nombrePorDefecto, escribioHace, estadoTanda, puedeManejar, estadoCola };

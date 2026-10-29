@@ -82,17 +82,17 @@
     <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap">
       <label class="f">Calificación<select id="pCal"><option value="">Todas</option><option>Calificado</option><option>Posible prospecto</option><option>No calificado</option><option>Sin calificar</option></select></label>
       <label class="f">Isapre/Fonasa<select id="pIsa"><option value="">Todas</option></select></label>
-      <label class="f">Buscar<input type="search" id="pQ" placeholder="Nombre o teléfono" style="width:220px"></label>
+      <label class="f">Buscar<input type="search" id="pQ" placeholder="Nombre o teléfono" style="width:170px"></label>
       <label class="f">Etiqueta<select id="pEtq"><option value="">Todas</option></select></label>
       <label class="check" style="gap:8px;align-self:center;margin-top:18px"><input type="checkbox" id="pEst"><span>Solo estancados</span></label>
       <label class="f">Filtros guardados<select id="pFil"><option value="">—</option></select></label>
       <button class="btn sm" id="pFilG" type="button" style="align-self:flex-end;margin-bottom:4px" title="Guarda la combinación de filtros de ahora con un nombre">Guardar filtro</button>
       <button class="btn sm" id="pFilX" type="button" hidden style="align-self:flex-end;margin-bottom:4px">Borrar filtro</button>
       <span class="grow"></span>
-      <span class="small muted" id="pLeyenda" style="align-self:center"></span>
       <button class="btn" id="pDup" hidden>Contactos repetidos</button>
       <button class="btn pri" id="pNuevo">Nuevo contacto</button>
     </div>
+    <span class="small muted" id="pLeyenda" style="margin:-6px 0 8px"></span>
     <div class="board" id="board" style="flex:1;min-height:0"></div>
   </section>
 
@@ -166,6 +166,7 @@
   <!-- AUTOMÁTICOS -->
   <section class="view" id="v-auto">
     <div class="glass" style="margin-bottom:20px"><div class="card" style="padding-bottom:6px"><div class="hd"><div><h2>Mensajes agendados</h2><span class="small muted">Avisos a uno o varios clientes en la fecha y hora que elijas: firmas, documentos, pagos, reuniones.</span></div><button class="btn pri" id="agNuevo">Agendar mensaje</button></div></div><div id="agList"></div></div>
+    <div class="glass card" id="aCola" style="margin-bottom:20px"></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;gap:16px;flex-wrap:wrap"><h2 style="margin:0;font-size:20px;font-weight:500">Secuencia de seguimiento</h2><span class="muted small">Se detiene sola si el lead responde, pide BAJA o lo mueves de etapa · los cambios aplican a todos · El Mensaje 1 se usa en Envíos (botón "Usar Mensaje 1") y es el primer mensaje a los leads de Meta</span></div>
     <div class="steps" id="aSteps"></div>
     <div style="margin-top:16px">

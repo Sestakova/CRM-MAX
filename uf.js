@@ -25,4 +25,7 @@ function siete(renta, ufValor, topeUF = 90) {
   return { pesos, uf: Math.round((pesos / ufValor) * 100) / 100, conTope: r > tope };
 }
 
-module.exports = { fechaUFVigente, urlUF, necesitaUF, siete };
+// Tope imponible permitido en Configuración: entre 1 y 500 UF (si viene algo raro, 90)
+const topeValido = (x) => { const n = parseFloat(String(x).replace(',', '.')); return Number.isFinite(n) && n > 0 ? Math.min(500, Math.max(1, Math.round(n * 10) / 10)) : 90; };
+
+module.exports = { topeValido, fechaUFVigente, urlUF, necesitaUF, siete };

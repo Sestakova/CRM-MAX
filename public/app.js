@@ -96,7 +96,7 @@ async function etiquetaModal(tel, nombre, listo) {
 // 7% de salud con la UF del día 5 y el tope imponible (Configuración)
 const fechaUF = (f) => { const [y, m, d] = String(f).slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' }); };
 function sieteDe(renta) {
-  const v = EST && EST.uf && EST.uf.vigente ? EST.uf.vigente.valor : 0, tope = (CFG && CFG.siete && +CFG.siete.topeUF) || 90;
+  const v = EST && EST.uf && EST.uf.vigente ? EST.uf.vigente.valor : 0, tope = CFG && CFG.siete && +CFG.siete.topeUF > 0 ? +CFG.siete.topeUF : 90;
   const r = parseInt(String(renta || '').replace(/\D/g, ''), 10);
   if (!(r > 0) || !(v > 0)) return null;
   const base = Math.min(r, tope * v), pesos = Math.round(base * 0.07);
@@ -265,12 +265,14 @@ async function poll() {
     avisoDocumento(s.documento);
     pintarUpBarra(s.actualizacion);
     if (current === 'envios') { renderCola(); renderGrupos(); if (verTanda.refrescar) verTanda.refrescar(); }
+    if (current === 'auto') renderColaAuto();
     if (current === 'config') renderWaCard();
     if (s.version) $('barraTitulo').textContent = 'CRM HERMES · versión ' + s.version;
     if (!poll.novedades && s.version) { poll.novedades = true; novedades(s.version); }
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
+  '4.3.1': ['Envíos y Automáticos con colas separadas: «Pausar» en Envíos ya no detiene tus seguimientos; los seguimientos y el Mensaje 1 de Meta se pausan y cancelan en Automáticos («En cola ahora»)', 'Los mensajes agendados salen a su hora aunque los envíos estén en pausa', 'Al enviar, avisa y desmarca a quien ya espera en la cola (no le llegan dos mensajes)', 'Buscar encuentra nombres con tilde o ñ aunque los escribas sin ella', 'La cola dice «Sin envíos» cuando no queda nada', 'Pastillas de calificación y motivo de pérdida que se leen bien, «1 carga», barra de la Pipeline ordenada y los días que faltan para el aniversario'],
   '4.3.0': ['Temas de color: Claro, Invertido, Oscuro y Automático (oscuro de noche), con un botón arriba', 'Actualizaciones livianas: bajan en segundos, con una barrita de avance y el botón «Reiniciar y actualizar»', 'Los documentos que descargas de un chat quedan en la carpeta de ese cliente, en «Clientes CRM HERMES» del escritorio', 'Felicitaciones con confeti al cerrar una venta y anualidad de cada cliente con aviso un mes antes del aniversario', 'El 7% de salud de cada lead en su ficha, con la UF del día 5 y tope de 90 UF', 'Etiquetas propias y filtros guardados en la Pipeline', 'Sin la campanita y sin la línea entre los círculos de la barra'],
   '4.2.1': ['Arreglo: el Cotizador ya deja iniciar sesión y la recuerda, igual que WhatsApp', 'Tu cotizador publicado («Ver mi sitio») se abre dentro del CRM, sin saltar al navegador'],
   '4.2.0': ['Nueva sección Cotizador: tu cuenta de miscotizadores dentro del CRM (atajo 7)'],
@@ -305,11 +307,11 @@ async function novedades(v) {
 }
 // Pantalla de bienvenida de CRM HERMES (una sola vez)
 function bienvenida(v) {
-  const IT = [['🪶', 'Nuevo nombre y diseño', 'CRM MAX ahora es CRM HERMES. Tus contactos, chats y configuración siguen igual.'], ['🧵', 'Inicio con hilos', 'Toca una sección y se abre arriba; los círculos bajan a una barra. Esc vuelve al Inicio.'], ['📞', 'Agendar llamada', 'Eliges la hora y el cliente recibe la confirmación y un recordatorio. Tú, un aviso.'], ['🟠', 'Leads estancados y próxima acción', 'Ves en naranjo quién lleva días quieto y quién conversa sin un siguiente paso.'], ['✨', 'Postventa y referidos', 'Al pasar a Ingresado: bienvenida, control al mes y petición de referidos.'], ['☀️', 'Resumen diario', 'Cada mañana te llega a tu WhatsApp lo que tienes para el día.'], ['🔎', 'Buscar con Ctrl K', 'Encuentra cualquier contacto y abre su chat o su ficha al tiro.'], ['🔔', 'Campanita', 'Tus llamadas y recordatorios de hoy, arriba a la derecha.']];
+  const IT = [['💬', 'WhatsApp dentro del CRM', 'Tus chats con la ficha de cada lead al lado: etapa, próxima acción, llamadas y etiquetas.'], ['🧵', 'Inicio con hilos', 'Toca una sección y se abre arriba; los círculos bajan a una barra. Esc vuelve al Inicio.'], ['📣', 'Envíos y seguimientos', 'Envíos masivos en grupos con su propio ritmo, y seguimientos automáticos si no responden.'], ['📞', 'Agendar llamada', 'Eliges la hora y el cliente recibe la confirmación y un recordatorio. Tú, un aviso.'], ['🎉', 'Anualidad de tus clientes', 'Al pasar a Ingresado empieza su año y te aviso un mes antes del aniversario.'], ['📁', 'Documentos por cliente', 'Lo que descargas de un chat queda en «Clientes CRM HERMES» del escritorio.'], ['🧮', 'El 7% de cada lead', 'En su ficha, con la UF del día 5 y el tope imponible.'], ['🌙', 'Temas de color', 'Claro, Invertido, Oscuro o Automático, con el botón de arriba.']];
   const b = $('bienvenida');
   b.innerHTML = `<div class="bvbox" role="dialog" aria-modal="true" aria-label="Bienvenido a CRM HERMES">
     <div style="display:flex;align-items:center;gap:18px">${LOGO_SVG(72)}<div><span class="eyebrow" style="font-size:13px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--terra-d)">Versión ${esc(v)} instalada</span><h2 class="ttl">CRM HERMES</h2></div></div>
-    <p style="margin:0;font-size:16px;color:var(--muted)">Tu CRM se renovó. Esto es lo nuevo:</p>
+    <p style="margin:0;font-size:16px;color:var(--muted)">Esto es lo que puedes hacer:</p>
     <div class="bvgrid">${IT.map(([i, t, d]) => `<div class="bvit"><span class="ic">${i}</span><div><b>${t}</b><span class="muted">${d}</span></div></div>`).join('')}</div>
     <div style="display:flex;justify-content:flex-end"><button class="btn pri lg" id="bvOk">Empezar</button></div></div>`;
   b.hidden = false; document.body.classList.add('tapado'); syncVista(true);
@@ -635,7 +637,7 @@ async function loadPipeline() {
   $('pLeyenda').innerHTML = nEst ? `<span style="color:var(--warn);font-weight:600">${nEst} en naranjo</span>: más de ${d.diasEstancado} días en la misma etapa` : '';
   GET('/api/duplicados').then((x) => { const n = x.grupos.length; $('pDup').hidden = !n; $('pDup').textContent = `Contactos repetidos (${n})`; }).catch(() => {});
   $('board').innerHTML = ETAPAS.map((et, i) => { const cs = pipeData.filter((c) => (c.etapa || 'Nuevo') === et);
-    return `<section class="col" data-etapa="${et}"><div class="ch" style="background:${COL[i]}B8"><span>${et}</span><span>${cs.length}</span></div><div class="cb">${cs.slice(0, 200).map((c) => `<div class="kcard ${c.estancado ? 'est' : ''}" role="button" tabindex="0" draggable="true" data-tel="${c.telefono}"><div class="kt"><b>${esc(nombreDe(c))}</b>${c.estancado ? `<span class="dias" title="Días en esta etapa">${c.diasEtapa} días</span>` : ''}<button class="kwa" data-chat="${c.telefono}" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg></button></div>${(c.etiquetas || []).length ? `<div class="kets">${c.etiquetas.map((e) => chipEtq(e)).join('')}</div>` : ''}${c.prox && c.prox.fecha ? `<span class="prox okp">${c.prox.llamada ? '📞' : '🔔'} ${esc(cuando(c.prox.fecha))}${c.prox.llamada ? ' · llamada' : ''}</span>` : c.sinProx ? '<span class="prox sinp">Sin próxima acción</span>' : ''}<span>${[c.edadActual ? c.edadActual + ' años' : '', c.renta ? money(c.renta) : '', c.cargas ? c.cargas + ' cargas' : '', c.isapre].filter(Boolean).map(esc).join(' · ') || fmtTel(c.telefono)}</span>${et === 'Perdido' && c.motivo_perdida ? `<span class="pill p-bad" style="align-self:flex-start">${esc(c.motivo_perdida)}</span>` : c.calificacion ? `<span class="pill ${califPill(c.calificacion)}" style="align-self:flex-start">${esc(c.calificacion)}</span>` : ''}</div>`).join('')}${cs.length > 200 ? `<div class="small muted" style="padding:6px">y ${cs.length - 200} más… usa los filtros</div>` : ''}</div></section>`; }).join('');
+    return `<section class="col" data-etapa="${et}"><div class="ch" style="background:${COL[i]}B8"><span>${et}</span><span>${cs.length}</span></div><div class="cb">${cs.slice(0, 200).map((c) => `<div class="kcard ${c.estancado ? 'est' : ''}" role="button" tabindex="0" draggable="true" data-tel="${c.telefono}"><div class="kt"><b>${esc(nombreDe(c))}</b>${c.estancado ? `<span class="dias" title="Días en esta etapa">${c.diasEtapa} días</span>` : ''}<button class="kwa" data-chat="${c.telefono}" title="Abrir en WhatsApp" aria-label="Abrir en WhatsApp"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg></button></div>${(c.etiquetas || []).length ? `<div class="kets">${c.etiquetas.map((e) => chipEtq(e)).join('')}</div>` : ''}${c.prox && c.prox.fecha ? `<span class="prox okp">${c.prox.llamada ? '📞' : '🔔'} ${esc(cuando(c.prox.fecha))}${c.prox.llamada ? ' · llamada' : ''}</span>` : c.sinProx ? '<span class="prox sinp">Sin próxima acción</span>' : ''}<span>${[c.edadActual ? c.edadActual + ' años' : '', c.renta ? money(c.renta) : '', c.cargas ? c.cargas + (String(c.cargas).trim() === '1' ? ' carga' : ' cargas') : '', c.isapre].filter(Boolean).map(esc).join(' · ') || fmtTel(c.telefono)}</span>${et === 'Perdido' && c.motivo_perdida ? `<span class="pill p-bad" style="align-self:flex-start">${esc(c.motivo_perdida)}</span>` : c.calificacion ? `<span class="pill ${califPill(c.calificacion)}" style="align-self:flex-start">${esc(c.calificacion)}</span>` : ''}</div>`).join('')}${cs.length > 200 ? `<div class="small muted" style="padding:6px">y ${cs.length - 200} más… usa los filtros</div>` : ''}</div></section>`; }).join('');
   $('board').querySelectorAll('.kcard').forEach((k) => {
     k.ondragstart = (e) => { e.dataTransfer.setData('text/plain', k.dataset.tel); };
     k.onclick = (e) => { if (!e.target.closest('[data-chat]')) contactoModal(pipeData.find((c) => c.telefono === k.dataset.tel), loadPipeline); };
@@ -1082,13 +1084,17 @@ function renderCola() {
   $('qInfo').textContent = q.pendientes ? `${q.pendientes} pendientes` : 'Sin pendientes';
   $('qBar').style.width = Math.min(100, (q.enviadosHoy / Math.max(1, q.limite)) * 100) + '%';
   const secs = q.nextAt ? Math.max(0, Math.round((q.nextAt - Date.now()) / 1000)) : null;
-  $('qEspera').innerHTML = q.pausada ? '<span style="color:var(--warn)">En pausa</span>' : q.espera ? `<span style="color:var(--warn)">${esc(q.espera)}</span>` : q.pendientes ? (secs != null ? `Próximo en ${secs > 90 ? Math.round(secs / 60) + ' min' : secs + ' s'} · ${esc(det)}` : 'Enviando… · ' + esc(det)) : `Hoy: ${q.enviadosHoy} de ${q.limite}`;
+  $('qEspera').innerHTML = q.pausada ? `<span style="color:var(--warn)">${esc(q.estadoTexto || 'En pausa')}</span>` : q.espera ? `<span style="color:var(--warn)">${esc(q.espera)}</span>` : q.pendientes ? (secs != null ? `Próximo en ${secs > 90 ? Math.round(secs / 60) + ' min' : secs + ' s'} · ${esc(det)}` : 'Enviando… · ' + esc(det)) : `Hoy: ${q.enviadosHoy} de ${q.limite}`;
   $('qPause').textContent = q.pausada ? 'Reanudar todo' : 'Pausar todo';
   const sig = JSON.stringify(EST.eventos.slice(-40));
   if (renderCola.sig !== sig) { renderCola.sig = sig; $('qLog').innerHTML = [...EST.eventos].reverse().slice(0, 40).map((e) => `<div><span class="muted">${e.hora}</span><span class="st-${e.estado}">${e.estado}</span><span class="grow">${esc(e.quien || '')}${e.detalle ? ' · ' + esc(e.detalle) : ''}</span>${e.tel ? `<button class="lnk" data-chat="${esc(e.tel)}">Abrir en WhatsApp</button>` : ''}</div>`).join('') || '<div class="muted" style="display:block">Aquí verás cada envío.</div>'; }
 }
-$('qPause').onclick = async () => { await POST('/api/cola/pausa', { pausada: !EST.cola.pausada }); poll(); };
-$('qCancel').onclick = async () => { if (confirm('¿Cancelar todos los envíos pendientes? Los seguimientos automáticos se mantienen.')) { await POST('/api/cola/cancelar'); poll(); } };
+$('qPause').onclick = async () => { await POST('/api/cola/pausa', { pausada: !EST.cola.pausada }); poll(); };   // solo los envíos masivos: los seguimientos se pausan en Automáticos
+$('qCancel').onclick = async () => {
+  if (!confirm('¿Cancelar todos los envíos masivos pendientes? Los seguimientos automáticos se manejan en Automáticos.')) return;
+  await POST('/api/cola/cancelar'); await poll();
+  toast('Envíos cancelados.' + (EST.auto && EST.auto.pendientes ? ` Los ${EST.auto.pendientes} seguimientos siguen en Automáticos.` : ''), 5000);
+};
 
 // ---------------- Cotizador ----------------
 // En el programa, miscotizadores va en su propia vista con la sesión guardada (como WhatsApp); syncVista la ubica sobre #cotizCaja.
@@ -1116,7 +1122,30 @@ async function loadAuto() {
   const h = CFG.reglas.horario; const f = (x, n) => (x.on ? `${n} ${x.desde}–${x.hasta}` : `${n} cerrado`);
   $('fhInfo').innerHTML = `Se envía una vez al día cuando alguien escribe fuera de: ${f(h.lv, 'L–V')} · ${f(h.sab, 'Sáb')} · ${f(h.dom, 'Dom')}. <a href="#" data-go="config" class="lnk">Cambiar horario</a>`;
   $('aSave').onclick = guardarAuto;
-  renderAgendados();
+  renderAgendados(); renderColaAuto(true);
+}
+// Automáticos en cola: seguimientos y Mensaje 1 de Meta, con su propia pausa (los agendados salen siempre a su hora)
+let colaAutoAbierta = false;
+async function renderColaAuto(forzar) {
+  const el = $('aCola'); if (!el || !EST || !EST.auto) return;
+  const a = EST.auto, sig = JSON.stringify(a) + colaAutoAbierta;
+  if (!forzar && renderColaAuto.sig === sig) return; renderColaAuto.sig = sig;
+  const det = a.porTipo.map((t) => `${t.n} ${TIPO[t.tipo] || t.tipo}`).join(' · ');
+  const estado = a.pausada ? `<span style="color:var(--warn)">En pausa${a.pendientes ? ' · esperan ' + esc(det) : ''}</span>` : a.pendientes ? esc(det) + ' · salen de a uno, con las mismas pausas y el máximo diario' : 'Nada en cola: los seguimientos y el Mensaje 1 de Meta aparecen aquí mientras esperan salir';
+  el.innerHTML = `<div class="hd"><div><h2>En cola ahora</h2><span class="small muted">Seguimientos y Mensaje 1 a leads de Meta que esperan salir</span></div><span class="small muted">${a.pendientes} pendiente${a.pendientes === 1 ? '' : 's'}</span></div>
+    <span class="small">${estado}</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="acPausa">${a.pausada ? 'Reanudar seguimientos' : 'Pausar seguimientos'}</button>${a.pendientes && esAdmin() ? '<button class="btn sm danger" id="acCancel">Cancelar los de la cola</button>' : ''}${a.pendientes ? `<button class="btn sm" id="acVer">${colaAutoAbierta ? 'Ocultar' : 'Ver a quiénes'}</button>` : ''}</div>
+    <div id="acLista" class="aclista" ${colaAutoAbierta && a.pendientes ? '' : 'hidden'}></div>`;
+  $('acPausa').onclick = async () => { await POST('/api/auto/pausa', { pausada: !a.pausada }); await poll(); renderColaAuto(true); };
+  if ($('acCancel')) $('acCancel').onclick = async () => {
+    if (!confirm(`¿Cancelar los ${a.pendientes} mensajes automáticos que esperan? Esas personas salen de la secuencia de seguimiento.`)) return;
+    const r = await POST('/api/auto/cancelar').catch((e) => { toast(e.message); return null; }); await poll(); renderColaAuto(true); if (r) toast(`Se cancelaron ${r.n} mensajes automáticos`);
+  };
+  if ($('acVer')) $('acVer').onclick = () => { colaAutoAbierta = !colaAutoAbierta; renderColaAuto(true); };
+  if (colaAutoAbierta && a.pendientes) {
+    const d = await GET('/api/auto/cola').catch(() => ({ items: [] }));
+    $('acLista').innerHTML = d.items.map((x) => `<div class="li"><div class="grow" style="min-width:0"><b>${esc(nombreDe(x))}</b> <span class="small muted">${fmtTel(x.telefono)}</span></div><span class="pill p-mut">${esc(TIPO[x.tipo] || x.tipo)}</span><span class="small muted">desde ${esc(cuando(x.creado))}</span></div>`).join('') + (a.pendientes > d.items.length ? `<div class="small muted" style="padding:8px 20px">y ${a.pendientes - d.items.length} más</div>` : '');
+  }
 }
 async function guardarAuto() {
   const s = CFG.secuencia;
@@ -1557,6 +1586,7 @@ setInterval(() => {
 }, 15000);
 
 // ---------------- Venta cerrada: felicitaciones y anualidad ----------------
+const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dma = (f) => String(f).slice(0, 10).split('-').reverse().join('-');   // AAAA-MM-DD → DD-MM-AAAA
 const MOTIVOS_ANUAL = ['Apertura de cartera', 'Cambio de plan'];
 // Cambia la etapa desde cualquier lugar; si el lead pasa a Ingresado por primera vez, celebra
@@ -1590,7 +1620,7 @@ function anualHTML(c) {
   if (!c || (c.etapa !== 'Ingresado' && !c.anualidad)) return '';
   const a = c.anualidad;
   if (!a) return `<div class="fsec anual" data-anual="${c.telefono}"><span class="small muted" style="font-weight:700">Anualidad</span><span class="small muted">Sin anualidad: entró a Ingresado antes de esta versión y no hay fecha guardada.</span><button class="btn sm" data-afijar>Fijar anualidad</button></div>`;
-  return `<div class="fsec anual" data-anual="${c.telefono}"><span class="small muted" style="font-weight:700">Anualidad</span><span>Desde <b>${dma(a.desde)}</b> · aniversario <b>${dma(a.aniversario)}</b></span><div class="abar"><span style="width:${Math.round(a.progreso * 100)}%"></span></div><span class="small muted">${a.mesesFaltan ? `Faltan ${a.mesesFaltan} mes${a.mesesFaltan === 1 ? '' : 'es'}` : 'Este mes'} · te aviso el ${dma(a.aviso)} · se renueva sola</span><button class="btn sm" data-arenovar>↻ Renovar anualidad</button><div class="ahist" hidden></div></div>`;
+  return `<div class="fsec anual" data-anual="${c.telefono}"><span class="small muted" style="font-weight:700">Anualidad</span><span>Desde <b>${dma(a.desde)}</b> · aniversario <b>${dma(a.aniversario)}</b></span><div class="abar"><span style="width:${Math.round(a.progreso * 100)}%"></span></div><span class="small muted">${a.mesesFaltan ? `Faltan ${a.mesesFaltan} mes${a.mesesFaltan === 1 ? '' : 'es'}` : a.diasFaltan ? `Faltan ${a.diasFaltan} día${a.diasFaltan === 1 ? '' : 's'}` : 'Es hoy'} · ${a.aviso >= hoyISO() ? 'te aviso el ' + dma(a.aviso) : 'aviso ya enviado'} · se renueva sola</span><button class="btn sm" data-arenovar>↻ Renovar anualidad</button><div class="ahist" hidden></div></div>`;
 }
 const TIPO_ANUAL = { ingreso: 'Ingresado', automatica: 'Se renovó sola', fijada: 'Anualidad fijada a mano' };
 async function activarAnual(raiz, c, listo) {

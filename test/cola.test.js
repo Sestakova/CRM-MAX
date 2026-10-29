@@ -132,3 +132,27 @@ test('marcarEnviando queda guardado al tiro: un corte de luz justo después no r
   const db2 = await baseNueva(carpeta);
   assert.equal(db2.get('SELECT estado FROM cola WHERE id = ?', [id]).estado, 'error');
 });
+
+test('siguienteAuto puede saltarse los automáticos en pausa (los agendados siempre)', async () => {
+  const db = await baseNueva();
+  db.encolar([{ telefono: '56911111111', texto: '', tipo: 'seguimiento1' }, { telefono: '56922222222', texto: 'x', tipo: 'masivo' }]);
+  assert.equal(db.siguienteAuto({ sinAutomaticos: true }).telefono, '56922222222');
+  assert.equal(db.siguienteAuto({ sinAutomaticos: true, sinMasivos: true }), undefined);
+  db.encolar([{ telefono: '56933333333', texto: 'x', tipo: 'agendado' }]);
+  assert.equal(db.siguienteAuto({ sinAutomaticos: true, sinMasivos: true }).telefono, '56933333333');
+});
+test('cancelar automáticos detiene su secuencia y no toca masivos ni agendados', async () => {
+  const db = await baseNueva();
+  db.guardarContacto({ telefono: '56911111111', nombre: 'Ana' });
+  db.run("UPDATE contactos SET seq_estado = 'activa', seq_paso = 2 WHERE telefono = '56911111111'");
+  db.encolar([{ telefono: '56911111111', texto: '', tipo: 'seguimiento1' }, { telefono: '56922222222', texto: '', tipo: 'meta' }, { telefono: '56933333333', texto: 'x', tipo: 'masivo' }, { telefono: '56944444444', texto: 'x', tipo: 'agendado' }]);
+  assert.equal(db.cancelarAutomaticos(), 2);
+  assert.equal(db.contacto('56911111111').seq_estado, 'detenida');
+  assert.deepEqual(db.all("SELECT tipo FROM cola WHERE estado = 'pendiente' ORDER BY tipo").map((r) => r.tipo), ['agendado', 'masivo']);
+});
+test('pendientes separados: masivos por un lado y automáticos por otro', async () => {
+  const db = await baseNueva();
+  db.encolar([{ telefono: '56911111111', texto: '', tipo: 'seguimiento1' }, { telefono: '56922222222', texto: '', tipo: 'meta' }, { telefono: '56933333333', texto: 'x', tipo: 'masivo' }, { telefono: '56944444444', texto: 'x', tipo: 'agendado' }]);
+  assert.equal(db.pendientesMasivos(), 1);
+  assert.deepEqual(db.pendientesAutomaticos().map((t) => [t.tipo, t.n]).sort(), [['meta', 1], ['seguimiento1', 1]]);
+});

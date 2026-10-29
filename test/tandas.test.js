@@ -94,3 +94,16 @@ test('con incluir, solo salen los que se vieron marcados en la confirmación', (
   const r = unirDestinatarios({ segmento: {}, incluir: ['56922222222'] }, { normPhone, buscarContactos: () => [{ telefono: '56922222222', nombre: 'Pedro' }, { telefono: '56933333333', nombre: 'Llegó recién' }] });
   assert.deepEqual(r.lista.map((c) => c.telefono), ['56922222222']);
 });
+
+// Texto de la cola cuando no está enviando (pausada o vacía)
+const { estadoCola } = require('../tandas');
+test('cola en pausa sin nada pendiente dice «Sin envíos»', () => assert.equal(estadoCola({ pausada: true, pendientes: 0, porTipo: [] }), 'Sin envíos · la cola está en pausa'));
+test('cola en pausa con seguimientos dice qué espera', () => assert.equal(estadoCola({ pausada: true, pendientes: 103, porTipo: [{ tipo: 'seguimiento2', n: 52 }, { tipo: 'seguimiento1', n: 47 }, { tipo: 'meta', n: 4 }] }), 'En pausa · esperan 52 Seguimiento 2 · 47 Seguimiento 1 · 4 Mensaje 1 (Meta)'));
+test('cola activa no cambia el texto de siempre', () => {
+  assert.equal(estadoCola({ pausada: false, pendientes: 3, porTipo: [{ tipo: 'masivo', n: 3 }] }), null);
+  assert.equal(estadoCola({ pausada: false, pendientes: 0, porTipo: [] }), null);
+});
+
+test('avisa y desmarca a quien ya espera en la cola de envíos', () => {
+  assert.deepEqual(avisosDe({ etapa: 'Contactado', enCola: 1 }, new Date()).map((a) => [a.clave, a.texto, a.desmarcar]), [['encola', 'Ya está en la cola de envío', true]]);
+});

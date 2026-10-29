@@ -23,6 +23,8 @@ module.exports = function auth({ db, log, version = '' }) {
   // Un único acceso: si venía de la versión con varios usuarios, queda solo el primer administrador
   const principal = () => db.get("SELECT * FROM usuarios WHERE rol = 'admin' AND activo = 1 ORDER BY id LIMIT 1");
   try { const p = principal(); if (p) db.run('UPDATE usuarios SET activo = 0 WHERE id <> ? AND activo = 1', [p.id]); } catch (e) { log('auth: ' + e.message); }
+  // 4.3.1: el usuario que se creaba con el PIN se llamaba «CRM MAX» (nombre antiguo del programa)
+  try { db.run("UPDATE usuarios SET nombre = 'Administrador' WHERE nombre = 'CRM MAX'"); } catch (e) { log('auth: ' + e.message); }
   const configurado = () => !!principal();
   const registrar = () => {};   // sin registro de actividad
 
@@ -75,7 +77,7 @@ module.exports = function auth({ db, log, version = '' }) {
     app.post('/api/auth/configurar', (req, res) => {
       if (configurado()) return fail(res, 'El PIN ya está creado');
       if (!pinValido(req.body.pin)) return fail(res, 'El PIN debe tener 4 números');
-      db.run('INSERT INTO usuarios (nombre, rol, pin, creado) VALUES (?, ?, ?, ?)', ['CRM MAX', 'admin', hash(req.body.pin), now()]);
+      db.run('INSERT INTO usuarios (nombre, rol, pin, creado) VALUES (?, ?, ?, ?)', ['Administrador', 'admin', hash(req.body.pin), now()]);
       const codigo = codigoRecuperacion(); db.setConfig('recuperacion', hash(codigo));
       abrirSesion(res, principal());
       ok(res, { codigo });

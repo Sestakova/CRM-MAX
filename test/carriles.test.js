@@ -73,3 +73,17 @@ test('trasError espera 15 s', () => {
   C.trasError(c, 1000);
   assert.equal(c.nextAt, 16000);
 });
+
+test('elegir: con los masivos en pausa salen los seguimientos y no los grupos', () => {
+  const tandas = [{ id: 1, item: { id: 10, tipo: 'masivo' } }];
+  assert.equal(C.elegir({ auto: { id: 5, tipo: 'seguimiento1' }, tandas, carriles: { t1: { nextAt: 0 }, auto: { nextAt: 500 } }, ahora: 2000, puedeMasivo: true, pausaMasivos: true }).clave, 'auto');
+  assert.equal(C.elegir({ auto: null, tandas, carriles: {}, ahora: 2000, puedeMasivo: true, pausaMasivos: true }), null);
+});
+test('elegir: con los automáticos en pausa salen los grupos y no los seguimientos', () => {
+  const tandas = [{ id: 1, item: { id: 10, tipo: 'masivo' } }];
+  assert.equal(C.elegir({ auto: { id: 5, tipo: 'meta' }, tandas, carriles: { t1: { nextAt: 900 }, auto: { nextAt: 0 } }, ahora: 2000, puedeMasivo: true, pausaAuto: true }).clave, 't1');
+  assert.equal(C.elegir({ auto: { id: 5, tipo: 'seguimiento2' }, tandas: [], carriles: {}, ahora: 2000, puedeMasivo: true, pausaAuto: true }), null);
+});
+test('elegir: los agendados salen aunque todo esté en pausa', () => {
+  assert.equal(C.elegir({ auto: { id: 5, tipo: 'agendado' }, tandas: [], carriles: {}, ahora: 2000, puedeMasivo: true, pausaAuto: true, pausaMasivos: true }).clave, 'auto');
+});

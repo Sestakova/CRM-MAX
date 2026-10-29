@@ -5,6 +5,7 @@ const ANUAL = require('./anualidad');
 const initSqlJs = require('sql.js');
 
 const ETAPAS = ['Nuevo', 'Contactado', 'Respondió', 'Cotización enviada', 'Firma/documentos', 'Ingresado', 'Perdido'];
+const sinAcento = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS contactos (
@@ -94,6 +95,8 @@ async function openDb(dataDir) {
   let db;
   try { db = fs.existsSync(file) ? new SQL.Database(fs.readFileSync(file)) : new SQL.Database(); }
   catch { try { fs.renameSync(file, file + '.danado-' + Date.now()); } catch {} db = new SQL.Database(); }
+  // Para buscar «matias» y encontrar «Matías» (SQLite solo baja a minúsculas las letras sin tilde)
+  db.create_function('sin_acento', (s) => sinAcento(s));
   db.exec(SCHEMA);
   // Columnas nuevas en tablas existentes
   const cols = (t) => { const r = db.exec(`PRAGMA table_info(${t})`); return r.length ? r[0].values.map((v) => v[1]) : []; };
@@ -211,7 +214,8 @@ async function openDb(dataDir) {
       for (const k of permitidos) if (k in campos) {
         let v = campos[k];
         if (k === 'renta') v = rentaNum(v);
-        if (k === 'edad') { v = v === '' || v == null ? null : parseInt(v); sets.push('edad_fecha = ?'); vals.push(now()); }
+        if (k === 'edad') { v = v === '' || v == null ? null : parseInt(v); if (!(v >= 0 && v <= 120)) v = null; sets.push('edad_fecha = ?'); vals.push(now()); }
+        if (k === 'etapa' && v && !ETAPAS.includes(v)) throw new Error('Etapa inválida: ' + v);
         sets.push(`${k} = ?`); vals.push(v === '' ? null : v);
       }
       if (!sets.length) return prev;
@@ -233,7 +237,7 @@ async function openDb(dataDir) {
       if (f.rentaMin) { w.push("CAST(renta AS INTEGER) >= ?"); p.push(parseInt(f.rentaMin)); }
       if (f.edadMin) { w.push('edad >= ?'); p.push(parseInt(f.edadMin)); }
       if (f.edadMax) { w.push('edad <= ?'); p.push(parseInt(f.edadMax)); }
-      if (f.q) { const dig = f.q.replace(/\D/g, ''); if (dig.length >= 3) { w.push("(LOWER(IFNULL(nombre,'') || ' ' || IFNULL(apellido,'')) LIKE ? OR telefono LIKE ?)"); p.push('%' + f.q.toLowerCase() + '%', '%' + dig + '%'); } else { w.push("LOWER(IFNULL(nombre,'') || ' ' || IFNULL(apellido,'')) LIKE ?"); p.push('%' + f.q.toLowerCase().trim() + '%'); } }
+      if (f.q) { const dig = f.q.replace(/\D/g, ''), qn = '%' + sinAcento(f.q.trim()) + '%'; if (dig.length >= 3) { w.push("(sin_acento(IFNULL(nombre,'') || ' ' || IFNULL(apellido,'')) LIKE ? OR telefono LIKE ?)"); p.push(qn, '%' + dig + '%'); } else { w.push("sin_acento(IFNULL(nombre,'') || ' ' || IFNULL(apellido,'')) LIKE ?"); p.push(qn); } }
       if (f.sinBajas) w.push('telefono NOT IN (SELECT telefono FROM bajas)');
       if (f.etiqueta) { w.push('telefono IN (SELECT telefono FROM contacto_etiquetas WHERE etiqueta_id = ?)'); p.push(parseInt(f.etiqueta)); }
       return all(`SELECT * FROM contactos ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY actualizado DESC LIMIT ${parseInt(f.limite) || 5000}`, p);
@@ -390,7 +394,7 @@ async function openDb(dataDir) {
       db.exec('COMMIT'); save();
     },
     // Mensajes sin grupo (agendados, leads de Meta, seguimientos y sueltos), en orden de prioridad
-    siguienteAuto: () => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND tanda IS NULL ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
+    siguienteAuto: ({ sinAutomaticos = false, sinMasivos = false } = {}) => { const r = get(`SELECT * FROM cola WHERE estado = 'pendiente' AND tanda IS NULL${sinAutomaticos ? " AND tipo NOT IN ('seguimiento1','seguimiento2','meta')" : ''}${sinMasivos ? " AND tipo IN ('seguimiento1','seguimiento2','meta','agendado')" : ''} ORDER BY CASE tipo WHEN 'agendado' THEN 0 WHEN 'meta' THEN 1 WHEN 'seguimiento1' THEN 2 WHEN 'seguimiento2' THEN 2 ELSE 3 END, id LIMIT 1`); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
     // El próximo de un grupo, en el orden que se le dio (arrastrando en la lista)
     siguienteDeTanda: (id) => { const r = get("SELECT * FROM cola WHERE estado = 'pendiente' AND tanda = ? ORDER BY COALESCE(orden, id), id LIMIT 1", [id]); if (r) r.datos = JSON.parse(r.datos || '{}'); return r; },
     // Grupos que pueden enviar ahora: sin pausa ni cancelar, con pendientes, y «Corriendo» o sin un grupo anterior que siga en la cola
@@ -432,7 +436,8 @@ async function openDb(dataDir) {
       for (let i = 0; i < tels.length; i += 500) {
         const parte = tels.slice(i, i + 500);
         for (const r of all(`SELECT c.telefono, c.etapa, c.ultimo_entrante, c.seq_estado,
-            (SELECT MAX(e.fecha) FROM envios e WHERE e.telefono = c.telefono AND e.tipo IN ('masivo', 'programado') AND e.estado = 'enviado') AS ultimoMasivo
+            (SELECT MAX(e.fecha) FROM envios e WHERE e.telefono = c.telefono AND e.tipo IN ('masivo', 'programado') AND e.estado = 'enviado') AS ultimoMasivo,
+            (SELECT COUNT(*) FROM cola q WHERE q.telefono = c.telefono AND q.estado IN ('pendiente', 'enviando') AND (q.tanda IS NOT NULL OR q.tipo IN ('masivo', 'programado'))) AS enCola
           FROM contactos c WHERE c.telefono IN (${parte.map(() => '?').join(',')})`, parte)) m.set(r.telefono, r);
       }
       return m;
@@ -451,6 +456,16 @@ async function openDb(dataDir) {
     cerrarItem: (id, estado, detalle) => run('UPDATE cola SET estado = ?, detalle = ?, procesado = ? WHERE id = ?', [estado, detalle || null, now(), id]),
     pendientesCola: () => get("SELECT COUNT(*) AS n FROM cola WHERE estado = 'pendiente'").n,
     pendientesPorTipo: () => all("SELECT tipo, COUNT(*) AS n FROM cola WHERE estado = 'pendiente' GROUP BY tipo"),
+    // La cola de Envíos (masivos y programados) y la de Automáticos (seguimientos y Mensaje 1 de Meta) se ven por separado
+    pendientesMasivos: () => get("SELECT COUNT(*) AS n FROM cola WHERE estado = 'pendiente' AND (tanda IS NOT NULL OR tipo IN ('masivo','programado'))").n,
+    pendientesAutomaticos: () => all("SELECT tipo, COUNT(*) AS n FROM cola WHERE estado = 'pendiente' AND tipo IN ('seguimiento1','seguimiento2','meta') GROUP BY tipo"),
+    // Cancela seguimientos y Mensaje 1 de Meta en cola; esas personas salen de la secuencia para que no se vuelvan a encolar
+    cancelarAutomaticos: () => {
+      const filas = all("SELECT telefono FROM cola WHERE estado = 'pendiente' AND tipo IN ('seguimiento1','seguimiento2','meta')"), tels = [...new Set(filas.map((r) => r.telefono))];
+      run("UPDATE cola SET estado = 'cancelado', procesado = ? WHERE estado = 'pendiente' AND tipo IN ('seguimiento1','seguimiento2','meta')", [now()]);
+      for (const t of tels) run("UPDATE contactos SET seq_estado = 'detenida', seq_motivo = 'Cancelado en la cola' WHERE telefono = ? AND seq_estado = 'activa'", [t]);
+      return filas.length;
+    },
     cancelarCola: (soloTipos) => run(`UPDATE cola SET estado = 'cancelado', procesado = ? WHERE estado = 'pendiente' ${soloTipos ? `AND tipo IN (${soloTipos.map((t) => `'${t}'`).join(',')})` : ''}`, [now()]),
     yaEnCola: (tel, tipo) => !!get("SELECT 1 AS x FROM cola WHERE telefono = ? AND tipo = ? AND estado = 'pendiente'", [tel, tipo]),
     // ---------- programados
@@ -500,6 +515,11 @@ async function openDb(dataDir) {
       db.run("INSERT INTO anualidades (telefono, fecha, tipo, isapre, creado) VALUES (?, ?, 'ingreso', ?, ?)", [c.telefono, f, c.isapre || null, now()]);
     }
     api.setConfig('mig_430_anual', true);
+  }
+  // 4.3.1: Envíos y Automáticos tienen pausas separadas; si la cola estaba en pausa, los automáticos también quedan en pausa
+  if (!api.getConfig('mig_431_pausa', false)) {
+    if (api.getConfig('cola_pausada', false)) api.setConfig('auto_pausada', true);
+    api.setConfig('mig_431_pausa', true);
   }
   // 4.1.0: ya no existe «Pausar todos los seguimientos»; si quedaron en pausa se reactivan una sola vez
   if (!api.getConfig('mig_410_seq', false)) {

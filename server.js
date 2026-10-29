@@ -507,14 +507,15 @@ function plantillaDe(it) {
 // Un mensaje por vuelta: entre el carril de automáticos y los grupos que pueden enviar, sale el que lleva más rato esperando
 async function tick() {
   if (wa.state !== 'listo') { cola.espera = 'WhatsApp no está conectado'; return; }
-  if (db.getConfig('cola_pausada', false)) { cola.espera = 'Envíos en pausa'; return; }
-  const auto = db.siguienteAuto();
-  const tandas = db.tandasQuePuedenEnviar().map((t) => ({ id: t.id, modo: t.modo, item: db.siguienteDeTanda(t.id) }));
-  if (!auto && !tandas.some((t) => t.item)) { cola.espera = null; return; }
+  // Envíos (masivos) y Automáticos (seguimientos y Mensaje 1 de Meta) se pausan por separado; los agendados nunca
+  const pausaMasivos = !!db.getConfig('cola_pausada', false), pausaAuto = !!db.getConfig('auto_pausada', false);
+  const auto = db.siguienteAuto({ sinAutomaticos: pausaAuto, sinMasivos: pausaMasivos });
+  const tandas = pausaMasivos ? [] : db.tandasQuePuedenEnviar().map((t) => ({ id: t.id, modo: t.modo, item: db.siguienteDeTanda(t.id) }));
+  if (!auto && !tandas.some((t) => t.item)) { cola.espera = pausaMasivos ? 'Envíos en pausa' : null; return; }
   const r = db.getConfig('reglas');
   const horario = enHorario(), limite = db.enviadosHoy() >= r.limiteDiario;
   cola.espera = !horario ? 'Fuera de horario: continúa en la próxima apertura' : limite ? `Llegaste al máximo diario (${r.limiteDiario}): continúa mañana` : null;
-  const e = CARRILES.elegir({ auto, tandas, carriles: cola.carriles, ahora: Date.now(), puedeMasivo: horario && !limite });
+  const e = CARRILES.elegir({ auto, tandas, carriles: cola.carriles, ahora: Date.now(), puedeMasivo: horario && !limite, pausaMasivos, pausaAuto });
   if (!e) return;
   const c = cola.carriles[e.clave];
   const res = await enviarItem(e.item);
@@ -807,10 +808,10 @@ app.get('/api/estado', (req, res) => {
   const r = db.getConfig('reglas');
   res.json({
     version, wa, ultimaRespuesta: wa.ultimaRespuesta || 0, uf, documento: ultimoDocumento, actualizacion: updater ? updater.estado() : null, yo: { nombre: req.usuario.nombre },
-    cola: { pausada: db.getConfig('cola_pausada', false), pendientes: db.pendientesCola(), porTipo: db.pendientesPorTipo(),
-      nextAt: proximoEnvio(), espera: cola.espera, enviadosHoy: db.enviadosHoy(), limite: r.limiteDiario, enHorario: enHorario() },
+    cola: (() => { const pausada = !!db.getConfig('cola_pausada', false), pendientes = db.pendientesMasivos(), porTipo = db.pendientesPorTipo().filter((t) => ['masivo', 'programado'].includes(t.tipo)); return { pausada, pendientes, porTipo, estadoTexto: TANDAS.estadoCola({ pausada, pendientes, porTipo }), nextAt: proximoEnvio(), espera: cola.espera, enviadosHoy: db.enviadosHoy(), limite: r.limiteDiario, enHorario: enHorario() }; })(),
+    auto: (() => { const porTipo = db.pendientesAutomaticos(); return { pausada: !!db.getConfig('auto_pausada', false), pendientes: porTipo.reduce((a, t) => a + t.n, 0), porTipo }; })(),
     noLeidos: db.get('SELECT COUNT(DISTINCT telefono) AS n FROM mensajes WHERE leido = 0').n,
-    avisos: { leadsHoy: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return db.leadsMetaDesde(d.toISOString()); })(), agendadosHoy: db.agendadosHoy(), campana: db.contarRecordatoriosHasta(finDeHoy().toISOString()) },
+    avisos: { leadsHoy: (() => { if (!META.publico().conectado) return 0; const d = new Date(); d.setHours(0, 0, 0, 0); return db.leadsMetaDesde(d.toISOString()); })(), agendadosHoy: db.agendadosHoy(), campana: db.contarRecordatoriosHasta(finDeHoy().toISOString()) },
     eventos: eventos.slice(-80)
   });
 });
@@ -922,7 +923,8 @@ app.get('/api/buscar', (req, res) => {
   const r = db.buscarContactos({ q, limite: 8 }).map((c) => ({ telefono: c.telefono, nombre: c.nombre, apellido: c.apellido, etapa: c.etapa || 'Nuevo', lead: true }));
   if (r.length < 8) {
     const dig = q.replace(/\D/g, '');
-    for (const w of db.all("SELECT telefono, nombre FROM nombres_wa WHERE LOWER(nombre) LIKE ? " + (dig.length >= 3 ? 'OR telefono LIKE ? ' : '') + 'LIMIT 8', dig.length >= 3 ? ['%' + q.toLowerCase() + '%', '%' + dig + '%'] : ['%' + q.toLowerCase() + '%']))
+    const qn = '%' + q.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() + '%';
+    for (const w of db.all("SELECT telefono, nombre FROM nombres_wa WHERE sin_acento(nombre) LIKE ? " + (dig.length >= 3 ? 'OR telefono LIKE ? ' : '') + 'LIMIT 8', dig.length >= 3 ? [qn, '%' + dig + '%'] : [qn]))
       if (r.length < 8 && !r.some((x) => x.telefono === w.telefono)) r.push({ telefono: w.telefono, nombre: w.nombre, apellido: '', etapa: null, lead: false });
   }
   res.json({ resultados: r });
@@ -1030,7 +1032,7 @@ app.get('/api/contactos/:tel/anualidad', (req, res) => { const c = db.contacto(r
 // Renovar (apertura de cartera, cambio de plan u otro) o fijar la fecha de un cliente que no la tenía
 app.post('/api/contactos/:tel/anualidad', (req, res) => {
   const b = req.body || {}, c = db.contacto(req.params.tel); if (!c) return fail(res, 'No existe', 404);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.fecha || '')) || isNaN(new Date(b.fecha))) return fail(res, 'Elige la fecha de inicio');
+  if (!ANUAL.fechaValida(b.fecha)) return fail(res, 'Elige la fecha de inicio');
   const tipo = b.tipo === 'fijada' ? 'fijada' : 'renovada';
   if (tipo === 'renovada' && !String(b.motivo || '').trim()) return fail(res, 'Elige el motivo');
   db.iniciarAnualidad(c.telefono, b.fecha, { tipo, motivo: tipo === 'renovada' ? String(b.motivo).trim().slice(0, 80) : null, isapre: String(b.isapre || '').trim().slice(0, 60) || null });
@@ -1073,7 +1075,7 @@ app.post('/api/contactos/:tel/etiquetas', (req, res) => { if (!db.contacto(req.p
 app.delete('/api/contactos/:tel/etiquetas/:id', (req, res) => { db.quitarEtiqueta(req.params.tel, parseInt(req.params.id)); ok(res); });
 app.patch('/api/contactos/:tel', (req, res) => {
   const antes = db.contacto(req.params.tel);
-  const c = db.actualizarContacto(req.params.tel, { ...req.body, _manual: true });
+  let c; try { c = db.actualizarContacto(req.params.tel, { ...req.body, _manual: true }); } catch (e) { return fail(res, e.message); }
   if (!c) return fail(res, 'No existe', 404);
   try {
     // Al salir de Ingresado se cancela la postventa que quedó agendada de versiones anteriores
@@ -1213,6 +1215,10 @@ app.post('/api/programados/:id/quitar', (req, res) => {
   if (!TANDAS.puedeManejar(p, quienSoy(req))) return fail(res, SIN_PERMISO_TANDA, 403);
   const quedan = db.quitarDeProgramado(p.id, req.body.telefono); act(req, 'Sacó a un contacto de un envío programado', `"${p.nombre}" · ${nombreC(req.body.telefono)}`); ok(res, { quedan });
 });
+// Cola de Automáticos: seguimientos y Mensaje 1 de Meta, con su propia pausa
+app.get('/api/auto/cola', (req, res) => res.json({ items: db.all("SELECT q.id, q.telefono, q.tipo, q.creado, COALESCE(NULLIF(c.nombre, ''), w.nombre) AS nombre, c.apellido FROM cola q LEFT JOIN contactos c ON c.telefono = q.telefono LEFT JOIN nombres_wa w ON w.telefono = q.telefono WHERE q.estado = 'pendiente' AND q.tipo IN ('seguimiento1','seguimiento2','meta') ORDER BY q.id LIMIT 300") }));
+app.post('/api/auto/pausa', (req, res) => { db.setConfig('auto_pausada', !!req.body.pausada); act(req, req.body.pausada ? 'Pausó los mensajes automáticos' : 'Reanudó los mensajes automáticos'); ok(res); });
+app.post('/api/auto/cancelar', soloAdmin, (req, res) => { const n = db.cancelarAutomaticos(); evento({ estado: 'cancelado', detalle: `Se cancelaron ${n} mensajes automáticos (seguimientos y Meta)` }); act(req, 'Canceló los mensajes automáticos en cola', `${n} mensajes`); ok(res, { n }); });
 app.post('/api/cola/pausa', (req, res) => { db.setConfig('cola_pausada', !!req.body.pausada); act(req, req.body.pausada ? 'Pausó los envíos' : 'Reanudó los envíos'); ok(res); });
 app.post('/api/cola/cancelar', soloAdmin, (req, res) => { db.cancelarCola(['masivo', 'programado']); evento({ estado: 'cancelado', detalle: 'Se cancelaron los envíos pendientes' }); ok(res); });
 
@@ -1319,7 +1325,7 @@ app.put('/api/config/:clave', (req, res) => {
   if (!EDITABLES.includes(k)) return fail(res, 'No editable');
   const libre = k === 'ui', auto = ['secuencia', 'fueraHorario', 'llamadas'].includes(k);
   if (!libre && !req.esAdmin && !(auto && req.permisos.automaticos)) return fail(res, 'Solo el administrador puede cambiar esto', 403);
-  db.setConfig(k, req.body.valor);
+  db.setConfig(k, k === 'siete' ? { ...(req.body.valor || {}), topeUF: UF.topeValido((req.body.valor || {}).topeUF) } : req.body.valor);
   const NOM = { reglas: 'las reglas de envío', secuencia: 'los mensajes automáticos', fueraHorario: 'la respuesta fuera de horario', avisos: 'los avisos', apariencia: 'la apariencia', llamadas: 'los mensajes de llamadas', siete: 'el tope imponible del 7%', estancado: 'los días para lead estancado' };
   if (!libre) act(req, 'Cambió ' + (NOM[k] || k));
   ok(res);
