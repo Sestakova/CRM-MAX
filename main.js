@@ -10,6 +10,14 @@ app.setPath('userData', path.join(app.getPath('appData'), 'Enviador WhatsApp'));
 const NOMBRE = 'CRM HERMES';
 // Versión que corre: la liviana si arranque.js abrió una, si no la instalada
 const VERSION = global.CRM_VERSION || app.getVersion();
+// Versión liviana: si algo falla antes de que la pantalla confirme que abrió, arranque.js vuelve a la instalada.
+// Se deja anotado el motivo en el registro técnico, y un rechazo suelto (p. ej. de WhatsApp mientras carga) ya no basta para volver atrás
+if (global.CRM_VERSION) {
+  const anotar = (tipo) => (e) => { try { fs.mkdirSync(path.join(app.getPath('userData'), 'datos'), { recursive: true }); fs.appendFileSync(path.join(app.getPath('userData'), 'datos', 'registro.txt'), `[${new Date().toISOString()}] ${tipo} en la versión ${global.CRM_VERSION}: ${e && (e.stack || e)}\n`); } catch {} };
+  process.prependListener('uncaughtException', anotar('Error al arrancar'));
+  process.removeAllListeners('unhandledRejection');
+  process.on('unhandledRejection', anotar('Aviso'));
+}
 // WhatsApp Web vive dentro del programa. La parte automática se conecta a esa misma vista (solo desde este PC).
 app.commandLine.appendSwitch('remote-debugging-port', '0');
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');

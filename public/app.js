@@ -287,6 +287,7 @@ async function poll() {
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
+  '4.3.5': ['La actualización liviana ya no vuelve a la versión anterior por un aviso pasajero al reiniciar (si eso pasaba, volvía la ventana gris de Windows)', 'Si una actualización no logra abrir, el motivo queda anotado en el registro técnico'],
   '4.3.4': ['Pantalla de bloqueo de vidrio: deja ver el CRM detrás, desenfocado y con tinte verde', 'El círculo del Inicio ya no muestra las «cosas para hoy»', 'Métricas es opcional: se activa o desactiva en Configuración → Ayudas en pantalla'],
   '4.3.3': ['La barra de secciones ya no se corre hacia abajo o hacia arriba cuando aparece o se va el aviso de WhatsApp'],
   '4.3.2': ['Las preguntas de confirmación (reiniciar, eliminar, cancelar) ahora tienen el diseño del CRM en vez de la ventana gris de Windows', 'En lo que borra o cancela, la opción segura queda marcada para que Enter no confirme por error'],
@@ -1806,9 +1807,9 @@ document.addEventListener('keydown', (e) => {
 // ---------------- Arranque ----------------
 let pendienteChat = null;
 (async () => {
+  // La pantalla cargó: si esta versión vino como actualización liviana, queda confirmada desde ya
+  if (window.crmNativo && window.crmNativo.sano) window.crmNativo.sano();
   const d = await fetch('/api/auth/estado').then((r) => r.json()).catch(() => null);
   if (d && d.sesion) await entrar(); else await mostrarLock();
-  // La pantalla abrió y conversa con el programa: si esta versión vino como actualización liviana, queda confirmada
-  if (d && window.crmNativo && window.crmNativo.sano) window.crmNativo.sano();
 })();
 window.abrirChat = (tel) => { if (!YO) { pendienteChat = tel; return; } openChat(tel); };
