@@ -287,6 +287,7 @@ async function poll() {
   } catch { $('waTxt').textContent = 'Reinicia el programa'; $('waDot').className = 'dot bad'; }
 }
 const NOVEDADES = {
+  '4.3.4': ['Pantalla de bloqueo de vidrio: deja ver el CRM detrás, desenfocado y con tinte verde', 'El círculo del Inicio ya no muestra las «cosas para hoy»', 'Métricas es opcional: se activa o desactiva en Configuración → Ayudas en pantalla'],
   '4.3.3': ['La barra de secciones ya no se corre hacia abajo o hacia arriba cuando aparece o se va el aviso de WhatsApp'],
   '4.3.2': ['Las preguntas de confirmación (reiniciar, eliminar, cancelar) ahora tienen el diseño del CRM en vez de la ventana gris de Windows', 'En lo que borra o cancela, la opción segura queda marcada para que Enter no confirme por error'],
   '4.3.1': ['Envíos y Automáticos con colas separadas: «Pausar» en Envíos ya no detiene tus seguimientos; los seguimientos y el Mensaje 1 de Meta se pausan y cancelan en Automáticos («En cola ahora»)', 'Los mensajes agendados salen a su hora aunque los envíos estén en pausa', 'Al enviar, avisa y desmarca a quien ya espera en la cola (no le llegan dos mensajes)', 'Buscar encuentra nombres con tilde o ñ aunque los escribas sin ella', 'La cola dice «Sin envíos» cuando no queda nada', 'Pastillas de calificación y motivo de pérdida que se leen bien, «1 carga», barra de la Pipeline ordenada y los días que faltan para el aniversario'],
